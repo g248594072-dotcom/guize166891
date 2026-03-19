@@ -5,10 +5,16 @@
         <i class="fa-solid fa-user-circle"></i>
         <h4>{{ character }}</h4>
       </div>
-      <button class="edit-btn" @click="$emit('openModal', 'edit_personal')">
-        <i class="fa-solid fa-pen"></i>
-        <span>编辑</span>
-      </button>
+      <div class="item-actions">
+        <button class="edit-btn" @click="$emit('openModal', 'edit_personal_rule', personalPayload)">
+          <i class="fa-solid fa-pen"></i>
+          <span>编辑</span>
+        </button>
+        <button class="delete-btn" @click="$emit('openModal', 'delete_personal_rule', personalPayload)">
+          <i class="fa-solid fa-trash"></i>
+          <span>删除</span>
+        </button>
+      </div>
     </div>
     <div class="rules-list">
       <div v-for="(rule, idx) in rules" :key="idx" class="rule-item">
@@ -19,13 +25,22 @@
 </template>
 
 <script setup lang="ts">
-defineProps<{
+import { computed } from 'vue';
+
+const props = defineProps<{
   character: string;
   rules: string[];
+  item?: { title?: string; character?: string; desc?: string };
 }>();
 
+const personalPayload = computed(() => props.item ?? {
+  title: props.character,
+  character: props.character,
+  desc: Array.isArray(props.rules) ? props.rules.join('\n') : '',
+});
+
 defineEmits<{
-  (e: 'openModal', type: string): void;
+  (e: 'openModal', type: string, payload?: Record<string, any>): void;
 }>();
 </script>
 
@@ -67,7 +82,13 @@ defineEmits<{
     }
   }
 
-  .edit-btn {
+  .item-actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  .edit-btn,
+  .delete-btn {
     display: flex;
     align-items: center;
     gap: 4px;
@@ -81,6 +102,10 @@ defineEmits<{
     &:hover {
       color: #fff;
     }
+  }
+
+  .delete-btn:hover {
+    color: #ef4444;
   }
 }
 

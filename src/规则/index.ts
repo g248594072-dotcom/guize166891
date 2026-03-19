@@ -6,11 +6,15 @@ $(async () => {
   // 等待酒馆助手全局初始化完成
   await waitUntil(() => typeof getVariables === 'function', { timeout: 30000 });
 
+  console.log('🎮 [规则] 同层前端界面初始化完成');
+
   // 创建 Vue 应用
   const app = createApp(App).use(createPinia());
 
   // 挂载到 #app
   app.mount('#app');
+
+  console.log('✅ [规则] 同层前端界面已挂载');
 
   // 页面卸载时清理
   $(window).on('pagehide', () => {

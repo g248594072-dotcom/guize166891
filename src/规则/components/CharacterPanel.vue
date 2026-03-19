@@ -5,7 +5,8 @@
         v-if="selectedCharacter"
         :character-id="selectedCharacter"
         @back="selectedCharacter = null"
-        @open-modal="$emit('openModal', $event)"
+        @open-modal="(...args) => $emit('openModal', ...args)"
+        @copy-to-input="$emit('copyToInput', $event)"
       />
       <CharacterList
         v-else
@@ -24,7 +25,8 @@ import CharacterDetail from './CharacterDetail.vue';
 const selectedCharacter = ref<string | null>(null);
 
 defineEmits<{
-  (e: 'openModal', type: string): void;
+  (e: 'openModal', type: string, payload?: Record<string, any>): void;
+  (e: 'copyToInput', text: string): void;
 }>();
 </script>
 

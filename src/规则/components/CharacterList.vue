@@ -2,23 +2,35 @@
   <section id="panel-character-list" class="character-list">
     <div class="section-header">
       <p class="desc">管理当前世界中的所有角色实体。</p>
-      <button id="btn-add-character" class="action-btn" @click="$emit('openModal', 'add_character')">
-        <i class="fa-solid fa-plus"></i>
-        <span>新增角色</span>
-      </button>
+      <div class="actions">
+        <button id="btn-add-character" class="action-btn" @click="$emit('openModal', 'add_character')">
+          <i class="fa-solid fa-plus"></i>
+          <span>新增角色</span>
+        </button>
+      </div>
     </div>
 
-    <div class="character-grid">
+    <!-- 加载中状态 -->
+    <div v-if="isLoading" class="loading-state">
+      <i class="fa-solid fa-circle-notch fa-spin"></i>
+      <span>正在加载角色数据...</span>
+    </div>
+
+    <div v-else-if="visibleCharacters.length === 0" class="empty-state">
+      <i class="fa-solid fa-users"></i>
+      <p>暂无角色</p>
+      <span class="hint">点击上方按钮添加新角色，或等待AI生成初始数据</span>
+    </div>
+
+    <div v-else class="character-grid">
       <article
-        v-for="char in characters"
+        v-for="char in visibleCharacters"
         :key="char.id"
         class="character-card"
-        :class="{ protagonist: char.isProtagonist }"
         @click="$emit('select', char.id)"
       >
-        <div v-if="char.isProtagonist" class="protagonist-badge">PROTAGONIST</div>
         <div class="card-header">
-          <div class="avatar" :class="{ protagonist: char.isProtagonist }">
+          <div class="avatar">
             <i class="fa-solid fa-user"></i>
           </div>
           <div class="info">
@@ -26,7 +38,7 @@
             <p>{{ char.role }} | {{ char.id }}</p>
           </div>
         </div>
-        <div v-if="!char.isProtagonist" class="stats">
+        <div class="stats">
           <div class="stat-row">
             <span class="label">好感度 AFFECTION</span>
             <span class="value">{{ char.affection }}%</span>
@@ -42,12 +54,72 @@
 </template>
 
 <script setup lang="ts">
-const characters = [
-  { id: 'CHR-000', name: '玩家 (你)', role: '主角 / 规则掌控者', status: '活跃', lust: 0, affection: 100, isProtagonist: true },
-  { id: 'CHR-001', name: '神宫寺 琉璃', role: '学生会书记', status: '活跃', lust: 75, affection: 42, isProtagonist: false },
-  { id: 'CHR-002', name: '白银 辉夜', role: '学生会会长', status: '活跃', lust: 10, affection: 10, isProtagonist: false },
-  { id: 'CHR-003', name: '早坂 爱', role: '专属女仆', status: '活跃', lust: 30, affection: 60, isProtagonist: false },
-];
+import { ref, onMounted, computed } from 'vue';
+import type { CharacterData } from '../types';
+import { readCharacters } from '../utils/variableReader';
+
+interface CharacterCardView {
+  id: string;
+  name: string;
+  role: string;
+  status: string;
+  lust: number;
+  affection: number;
+}
+
+const characters = ref<CharacterCardView[]>([]);
+const isLoading = ref(true);
+
+const visibleCharacters = computed(() => {
+  return characters.value || [];
+});
+
+function toDisplayName(name: unknown, fallback: string) {
+  const n = String(name ?? '').trim();
+  if (!n) return fallback;
+  if (n === '未知' || n === '未命名') return fallback;
+  return n;
+}
+
+async function loadCharacters() {
+  isLoading.value = true;
+  try {
+    const list: CharacterData[] = await readCharacters();
+
+    const cards: CharacterCardView[] = [];
+
+    for (const c of list) {
+      cards.push({
+        id: c.id,
+        name: toDisplayName((c as any).name, c.id),
+        role: '角色',
+        status: c.status === 'dead' ? '死亡' : '活跃',
+        lust: typeof (c as any).stats?.lust === 'number' ? (c as any).stats.lust : 0,
+        affection: typeof (c as any).stats?.affection === 'number' ? (c as any).stats.affection : 0,
+      });
+    }
+
+    characters.value = cards;
+    console.log('✅ [CharacterList] 加载角色:', cards.length);
+  } catch (e) {
+    console.warn('加载角色列表失败', e);
+    characters.value = [];
+  } finally {
+    isLoading.value = false;
+  }
+}
+
+onMounted(() => {
+  loadCharacters();
+
+  // 监听消息更新事件，刷新数据
+  if (typeof eventOn === 'function' && typeof tavern_events !== 'undefined') {
+    eventOn(tavern_events.MESSAGE_UPDATED, () => {
+      console.log('🔄 [CharacterList] 消息更新，刷新角色...');
+      loadCharacters();
+    });
+  }
+});
 
 defineEmits<{
   (e: 'select', id: string): void;
@@ -72,6 +144,12 @@ defineEmits<{
     font-size: 14px;
     color: #a1a1aa;
   }
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .action-btn {
@@ -126,10 +204,6 @@ defineEmits<{
     border-color: rgba(255, 255, 255, 0.2);
   }
 
-  &.protagonist {
-    border-color: rgba(255, 255, 255, 0.2);
-    background: rgba(255, 255, 255, 0.03);
-  }
 }
 
 :global(.light) .character-card {
@@ -139,19 +213,6 @@ defineEmits<{
   &:hover {
     border-color: rgba(0, 0, 0, 0.2);
   }
-}
-
-.protagonist-badge {
-  position: absolute;
-  top: 0;
-  right: 0;
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
-  font-size: 10px;
-  padding: 4px 12px;
-  border-bottom-left-radius: 8px;
-  font-weight: 500;
-  letter-spacing: 0.1em;
 }
 
 .card-header {
@@ -175,12 +236,7 @@ defineEmits<{
       font-size: 24px;
     }
 
-    &.protagonist {
-      background: rgba(255, 255, 255, 0.1);
-      color: #fff;
-    }
-
-    &:not(.protagonist):hover {
+    &:hover {
       color: #e4e4e7;
     }
   }
@@ -239,5 +295,66 @@ defineEmits<{
 
 :global(.light) .stats .stat-row .value {
   color: #27272a;
+}
+
+.loading-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 48px 24px;
+  color: #71717a;
+  font-size: 14px;
+
+  i {
+    font-size: 20px;
+  }
+}
+
+:global(.light) .loading-state {
+  color: #a1a1aa;
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  text-align: center;
+  gap: 12px;
+
+  i {
+    font-size: 48px;
+    color: #52525b;
+    opacity: 0.5;
+  }
+
+  p {
+    font-size: 16px;
+    font-weight: 500;
+    color: #e4e4e7;
+    margin: 0;
+  }
+
+  .hint {
+    font-size: 13px;
+    color: #71717a;
+    max-width: 280px;
+  }
+}
+
+:global(.light) .empty-state {
+  i {
+    color: #a1a1aa;
+  }
+
+  p {
+    color: #27272a;
+  }
+
+  .hint {
+    color: #a1a1aa;
+  }
 }
 </style>

@@ -10,10 +10,10 @@
       <p class="desc">{{ desc }}</p>
     </div>
     <div class="item-actions">
-      <button class="action-btn edit" @click="$emit('openModal', 'edit_rule')">
+      <button class="action-btn edit" @click="$emit('openModal', 'edit_world_rule', rule)">
         <i class="fa-solid fa-pen"></i>
       </button>
-      <button class="action-btn delete" @click="$emit('openModal', 'delete_rule')">
+      <button class="action-btn delete" @click="$emit('openModal', 'delete_world_rule', rule)">
         <i class="fa-solid fa-trash"></i>
       </button>
     </div>
@@ -21,14 +21,19 @@
 </template>
 
 <script setup lang="ts">
-defineProps<{
+import { computed } from 'vue';
+
+const props = defineProps<{
   title: string;
   desc: string;
   status: string;
+  rule?: { id?: string; title: string; desc: string; status: string; [key: string]: any };
 }>();
 
+const rule = computed(() => props.rule ?? { title: props.title, desc: props.desc, status: props.status });
+
 defineEmits<{
-  (e: 'openModal', type: string): void;
+  (e: 'openModal', type: string, payload?: Record<string, any>): void;
 }>();
 </script>
 

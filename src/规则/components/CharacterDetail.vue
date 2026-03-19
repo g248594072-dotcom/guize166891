@@ -1,5 +1,17 @@
 <template>
   <section id="panel-character-detail" class="character-detail">
+    <!-- 编辑模式：左上角绿色编辑完成，右上角红色取消 -->
+    <div v-if="isEditingBasic" class="edit-mode-bar">
+      <button type="button" class="btn-complete" @click="onFinishEditBasic">
+        <i class="fa-solid fa-check"></i>
+        <span>编辑完成</span>
+      </button>
+      <button type="button" class="btn-cancel" @click="cancelEditBasic">
+        <i class="fa-solid fa-xmark"></i>
+        <span>取消</span>
+      </button>
+    </div>
+
     <button class="back-btn" @click="$emit('back')">
       <i class="fa-solid fa-arrow-left"></i>
       <span>返回角色列表</span>
@@ -10,7 +22,7 @@
       <div
         id="btn-edit-avatar"
         class="avatar-edit"
-        @click="$emit('openModal', 'edit_avatar')"
+        @click="!isEditingBasic && $emit('openModal', 'edit_avatar')"
       >
         <i class="fa-solid fa-user"></i>
         <div class="edit-overlay">
@@ -19,12 +31,16 @@
       </div>
       <div class="profile-info">
         <div class="name-row">
-          <h2>{{ name }}</h2>
-          <span v-if="isProtagonist" class="protagonist-tag">PROTAGONIST</span>
+          <template v-if="isEditingBasic">
+            <input v-model="editForm.name" type="text" class="edit-name-input" placeholder="姓名" />
+          </template>
+          <template v-else>
+            <h2>{{ name }}</h2>
+          </template>
         </div>
         <p class="meta">ID: {{ characterId }} | 状态: 活跃</p>
       </div>
-      <button id="btn-edit-basic" class="edit-btn" @click="$emit('openModal', 'edit_basic')">
+      <button v-if="!isEditingBasic" id="btn-edit-basic" class="edit-btn" @click="startEditBasic">
         <i class="fa-solid fa-pen"></i>
         <span>编辑基础信息</span>
       </button>
@@ -37,21 +53,54 @@
           <i class="fa-solid fa-chart-line"></i>
           <h3>生理指标</h3>
         </div>
-        <div class="stats-list">
-          <StatRow label="年龄" :value="isProtagonist ? '20 岁' : '17 岁'" />
-          <StatRow label="身高" :value="isProtagonist ? '180 cm' : '165 cm'" />
-          <StatRow label="体重" :value="isProtagonist ? '70 kg' : '48 kg'" />
-          <StatRow v-if="!isProtagonist" label="三围" value="B88 W58 H89" />
-          <StatRow label="体质" :value="isProtagonist ? '规则免疫' : '敏感型'" />
+        <div v-if="isEditingBasic" class="stats-list edit-stats">
+          <div class="stat-row edit">
+            <span class="label">年龄</span>
+            <input v-model="editForm.age" type="text" class="edit-value" placeholder="如 17 岁" />
+          </div>
+          <div class="stat-row edit">
+            <span class="label">身高</span>
+            <input v-model="editForm.height" type="text" class="edit-value" placeholder="如 165 cm" />
+          </div>
+          <div class="stat-row edit">
+            <span class="label">体重</span>
+            <input v-model="editForm.weight" type="text" class="edit-value" placeholder="如 48 kg" />
+          </div>
+          <div class="stat-row edit">
+            <span class="label">三围</span>
+            <input v-model="editForm.threeSize" type="text" class="edit-value" placeholder="如 B88 W58 H89" />
+          </div>
+          <div class="stat-row edit">
+            <span class="label">体质</span>
+            <input v-model="editForm.physique" type="text" class="edit-value" placeholder="如 敏感型" />
+          </div>
+          <div class="stat-row edit">
+            <span class="label">好感度</span>
+            <input v-model.number="editForm.affection" type="number" class="edit-value" min="0" max="100" />
+          </div>
+          <div class="stat-row edit">
+            <span class="label">发情值</span>
+            <input v-model.number="editForm.lust" type="number" class="edit-value" min="0" max="100" />
+          </div>
+          <div class="stat-row edit">
+            <span class="label">性癖开发值</span>
+            <input v-model.number="editForm.fetish" type="number" class="edit-value" min="0" max="100" />
+          </div>
         </div>
-        <div v-if="!isProtagonist" class="stat-bars">
-          <StatBar label="好感度 AFFECTION" value="42/100" :percentage="42" />
-          <StatBar label="发情值 LUST" value="75/100" :percentage="75" />
-          <StatBar label="性癖开发值 FETISH" value="15/100" :percentage="15" />
-        </div>
-        <div v-else class="protagonist-note">
-          主角不受常规属性限制。
-        </div>
+        <template v-else>
+          <div class="stats-list">
+            <StatRow label="年龄" :value="displayAge" />
+            <StatRow label="身高" :value="displayHeight" />
+            <StatRow label="体重" :value="displayWeight" />
+            <StatRow label="三围" :value="displayThreeSize" />
+            <StatRow label="体质" :value="displayPhysique" />
+          </div>
+          <div class="stat-bars">
+            <StatBar label="好感度 AFFECTION" :value="`${displayAffection}/100`" :percentage="displayAffection" />
+            <StatBar label="发情值 LUST" :value="`${displayLust}/100`" :percentage="displayLust" />
+            <StatBar label="性癖开发值 FETISH" :value="`${displayFetish}/100`" :percentage="displayFetish" />
+          </div>
+        </template>
       </article>
 
       <!-- Psychology -->
@@ -59,26 +108,34 @@
         <div class="card-title">
           <i class="fa-solid fa-brain"></i>
           <h3>心理状态</h3>
+          <button
+            type="button"
+            class="edit-mini-btn"
+            @click="$emit('openModal', 'edit_character_mind', { characterId })"
+          >
+            编辑
+          </button>
         </div>
         <div class="psych-content">
           <div class="thought-section">
             <span class="section-label">当前想法</span>
             <p class="thought-text">
-              {{ isProtagonist ? '"这个世界的规则，由我来制定。"' : '"为什么身体会这么奇怪...明明不想发出那种声音的..."' }}
+              {{ displayThought }}
             </p>
           </div>
           <div class="traits-section">
             <span class="section-label">性格特征</span>
             <div class="badges">
-              <template v-if="isProtagonist">
-                <Badge text="掌控者" highlight />
-                <Badge text="冷静" />
-                <Badge text="观察者" />
+              <template v-if="displayTraits.length > 0">
+                <Badge
+                  v-for="(t, idx) in displayTraits"
+                  :key="`${t}-${idx}`"
+                  :text="String(t)"
+                  :highlight="idx === 0"
+                />
               </template>
               <template v-else>
-                <Badge text="傲娇" />
-                <Badge text="高自尊" />
-                <Badge text="容易害羞" />
+                <span class="empty-hint">暂无</span>
               </template>
             </div>
           </div>
@@ -86,30 +143,61 @@
       </article>
 
       <!-- Fetishes -->
-      <article v-if="!isProtagonist" class="detail-card">
+      <article class="detail-card">
         <div class="card-title">
           <i class="fa-solid fa-heart"></i>
           <h3>性癖与敏感带</h3>
+          <button
+            type="button"
+            class="edit-mini-btn"
+            @click="$emit('openModal', 'edit_character_fetish', { characterId })"
+          >
+            编辑
+          </button>
         </div>
         <div class="fetish-content">
           <div class="sensitive-section">
             <span class="section-label">敏感部位</span>
             <div class="badges">
-              <Badge text="耳垂 (Lv.3)" highlight />
-              <Badge text="后颈 (Lv.2)" />
-              <Badge text="大腿内侧 (Lv.4)" highlight />
+              <template v-if="displaySensitiveParts.length > 0">
+                <Badge
+                  v-for="(p, idx) in displaySensitiveParts"
+                  :key="`${p}-${idx}`"
+                  :text="String(p)"
+                  :highlight="idx === 0"
+                />
+              </template>
+              <template v-else>
+                <span class="empty-hint">暂无</span>
+              </template>
+            </div>
+          </div>
+          <div class="traits-section">
+            <span class="section-label">性癖</span>
+            <div class="badges">
+              <template v-if="displayFetishes.length > 0">
+                <Badge
+                  v-for="(f, idx) in displayFetishes"
+                  :key="`${f}-${idx}`"
+                  :text="String(f)"
+                  :highlight="idx === 0"
+                />
+              </template>
+              <template v-else>
+                <span class="empty-hint">暂无</span>
+              </template>
             </div>
           </div>
           <div class="hidden-fetish">
             <span class="section-label">隐藏性癖</span>
-            <p>表面上抗拒，但内心深处对被强制命令有微弱的期待。</p>
+            <p>{{ displayHiddenFetish }}</p>
           </div>
         </div>
       </article>
     </div>
 
     <!-- Affected Rules -->
-    <article v-if="!isProtagonist" class="rules-card">
+    <article class="rules-card">
       <div class="rules-header">
         <div class="title-group">
           <i class="fa-solid fa-shield-exclamation"></i>
@@ -120,16 +208,27 @@
         </button>
       </div>
       <div class="rules-grid">
-        <RuleCard type="world" title="猫娘语癖" desc="所有女性说话最后一个字必须用喵结尾。" active />
-        <RuleCard type="regional" title="圣华女学院：生理报告" desc="上课时上厕所必须提前报告，报告内容为羞辱自己的话语。" active />
-        <RuleCard type="personal" title="赤足禁忌" desc="永远不能穿鞋子，必须时刻感受地面的触感。" active />
+        <template v-if="affectedPersonalRules.length > 0">
+          <RuleCard
+            v-for="r in affectedPersonalRules"
+            :key="r.id"
+            type="personal"
+            :title="r.title"
+            :desc="r.desc"
+            :active="r.status === 'active'"
+          />
+        </template>
+        <template v-else>
+          <div class="empty-hint">暂无个人规则影响</div>
+        </template>
       </div>
     </article>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
+import type { CharacterData, RuleData } from '../types';
 import StatRow from './StatRow.vue';
 import StatBar from './StatBar.vue';
 import Badge from './Badge.vue';
@@ -139,12 +238,147 @@ const props = defineProps<{
   characterId: string;
 }>();
 
-const isProtagonist = computed(() => props.characterId === 'CHR-000');
-const name = computed(() => isProtagonist.value ? '玩家 (你)' : '神宫寺 琉璃');
+const defaultName = computed(() => '未知');
 
-defineEmits<{
+const currentExtra = ref<{
+  currentThought?: string;
+  traits?: string[];
+  fetishes?: string[];
+  sensitiveParts?: string[];
+  hiddenFetish?: string;
+}>({});
+
+const affectedPersonalRules = ref<RuleData[]>([]);
+
+const savedForm = ref({
+  name: defaultName.value,
+  age: '未知',
+  height: '未知',
+  weight: '未知',
+  threeSize: 'B88 W58 H89',
+  physique: '未知',
+  affection: 0,
+  lust: 0,
+  fetish: 0,
+});
+watch(defaultName, (v) => { savedForm.value.name = v; }, { immediate: true });
+
+const name = computed(() => savedForm.value.name || defaultName.value);
+const displayAge = computed(() => savedForm.value.age);
+const displayHeight = computed(() => savedForm.value.height);
+const displayWeight = computed(() => savedForm.value.weight);
+const displayThreeSize = computed(() => savedForm.value.threeSize);
+const displayPhysique = computed(() => savedForm.value.physique);
+const displayAffection = computed(() => savedForm.value.affection);
+const displayLust = computed(() => savedForm.value.lust);
+const displayFetish = computed(() => savedForm.value.fetish);
+
+const isEditingBasic = ref(false);
+const editForm = ref({ ...savedForm.value });
+
+const displayThought = computed(() => {
+  const v = currentExtra.value.currentThought;
+  if (typeof v === 'string' && v.trim().length > 0) return v;
+  return '暂无';
+});
+const displayTraits = computed(() => (Array.isArray(currentExtra.value.traits) ? currentExtra.value.traits : []));
+const displayFetishes = computed(() => (Array.isArray(currentExtra.value.fetishes) ? currentExtra.value.fetishes : []));
+const displaySensitiveParts = computed(() =>
+  (Array.isArray(currentExtra.value.sensitiveParts) ? currentExtra.value.sensitiveParts : []),
+);
+const displayHiddenFetish = computed(() => {
+  const v = currentExtra.value.hiddenFetish;
+  if (typeof v === 'string' && v.trim().length > 0) return v;
+  return '暂无';
+});
+
+onMounted(async () => {
+  try {
+    const { readCharacters, readPersonalRules } = await import('../utils/variableReader');
+    const characters: CharacterData[] = await readCharacters();
+    const current = characters.find((c) => c.id === props.characterId);
+    if (!current) return;
+
+    {
+      const n = String(current.name ?? '').trim();
+      savedForm.value.name = n && n !== '未知' && n !== '未命名' ? n : (current.id || defaultName.value);
+    }
+
+    const basic = (current as any).basic || {};
+    if (basic.age) savedForm.value.age = basic.age;
+    if (basic.height) savedForm.value.height = basic.height;
+    if (basic.weight) savedForm.value.weight = basic.weight;
+    if (basic.threeSize) savedForm.value.threeSize = basic.threeSize;
+    if (basic.physique) savedForm.value.physique = basic.physique;
+
+    const stats = (current as any).stats || {};
+    if (typeof stats.affection === 'number') savedForm.value.affection = stats.affection;
+    if (typeof stats.lust === 'number') savedForm.value.lust = stats.lust;
+    if (typeof stats.fetish === 'number') savedForm.value.fetish = stats.fetish;
+
+    currentExtra.value = {
+      currentThought: (current as any).currentThought,
+      traits: (current as any).traits,
+      fetishes: (current as any).fetishes,
+      sensitiveParts: (current as any).sensitiveParts,
+      hiddenFetish: (current as any).hiddenFetish,
+    };
+
+    // 受影响规则：先仅从「个人规则」按 target 精确匹配，避免串规则
+    try {
+      const personalRules = await readPersonalRules();
+      const idMatch = props.characterId;
+      const nameMatch = current.name;
+      affectedPersonalRules.value = (personalRules || []).filter((r: any) => {
+        const t = r?.target;
+        if (!t) return false;
+        return t === idMatch || t === nameMatch;
+      });
+    } catch (e) {
+      console.warn('加载个人规则失败', e);
+      affectedPersonalRules.value = [];
+    }
+
+    editForm.value = { ...savedForm.value };
+  } catch (e) {
+    console.warn('加载角色数据失败', e);
+  }
+});
+
+function startEditBasic() {
+  editForm.value = { ...savedForm.value };
+  isEditingBasic.value = true;
+}
+
+function cancelEditBasic() {
+  isEditingBasic.value = false;
+}
+
+async function onFinishEditBasic() {
+  try {
+    const { submitEditCharacterBasic } = await import('../utils/dialogAndVariable');
+    const messageText = await submitEditCharacterBasic(props.characterId, {
+      name: editForm.value.name,
+      age: editForm.value.age,
+      height: editForm.value.height,
+      weight: editForm.value.weight,
+      physique: editForm.value.physique,
+      affection: typeof editForm.value.affection === 'number' ? editForm.value.affection : parseInt(String(editForm.value.affection), 10) || 0,
+      lust: typeof editForm.value.lust === 'number' ? editForm.value.lust : parseInt(String(editForm.value.lust), 10) || 0,
+      fetish: typeof editForm.value.fetish === 'number' ? editForm.value.fetish : parseInt(String(editForm.value.fetish), 10) || 0,
+    });
+    Object.assign(savedForm.value, editForm.value);
+    isEditingBasic.value = false;
+    if (messageText) emit('copyToInput', messageText);
+  } catch (e) {
+    console.error('提交编辑失败', e);
+  }
+}
+
+const emit = defineEmits<{
   (e: 'back'): void;
-  (e: 'openModal', type: string): void;
+  (e: 'openModal', type: string, payload?: Record<string, any>): void;
+  (e: 'copyToInput', text: string): void;
 }>();
 </script>
 
@@ -154,6 +388,47 @@ defineEmits<{
   flex-direction: column;
   gap: 32px;
   padding-bottom: 80px;
+}
+
+.edit-mode-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+
+  .btn-complete {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    background: #22c55e;
+    color: #fff;
+
+    &:hover { background: #16a34a; }
+  }
+
+  .btn-cancel {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    background: #ef4444;
+    color: #fff;
+
+    &:hover { background: #dc2626; }
+  }
 }
 
 .back-btn {
@@ -243,16 +518,6 @@ defineEmits<{
         letter-spacing: -0.02em;
         color: #fff;
       }
-
-      .protagonist-tag {
-        background: rgba(255, 255, 255, 0.1);
-        color: #fff;
-        font-size: 12px;
-        padding: 4px 8px;
-        border-radius: 4px;
-        font-weight: 500;
-        letter-spacing: 0.1em;
-      }
     }
 
     .meta {
@@ -270,11 +535,6 @@ defineEmits<{
   }
 
   .profile-info .name-row h2 {
-    color: #18181b;
-  }
-
-  .protagonist-tag {
-    background: rgba(0, 0, 0, 0.1);
     color: #18181b;
   }
 }
@@ -343,6 +603,20 @@ defineEmits<{
       font-size: 18px;
       font-weight: 500;
       color: #f4f4f5;
+      flex: 1;
+    }
+
+    .edit-mini-btn {
+      font-size: 12px;
+      color: #a1a1aa;
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      transition: color 0.2s;
+
+      &:hover {
+        color: #fff;
+      }
     }
   }
 }
@@ -363,6 +637,56 @@ defineEmits<{
   display: flex;
   flex-direction: column;
   gap: 16px;
+
+  &.edit-stats .stat-row.edit {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+
+    .label {
+      font-size: 14px;
+      color: #71717a;
+      flex-shrink: 0;
+    }
+
+    .edit-value {
+      flex: 1;
+      max-width: 180px;
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      background: rgba(255, 255, 255, 0.05);
+      color: #fff;
+      outline: none;
+    }
+  }
+}
+
+:global(.light) .stats-list.edit-stats .stat-row.edit .edit-value {
+  border-color: rgba(0, 0, 0, 0.15);
+  background: #fff;
+  color: #18181b;
+}
+
+.edit-name-input {
+  font-size: 36px;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.05);
+  color: #fff;
+  outline: none;
+  width: 100%;
+  max-width: 320px;
+}
+
+:global(.light) .edit-name-input {
+  border-color: rgba(0, 0, 0, 0.15);
+  background: #fff;
+  color: #18181b;
 }
 
 .stat-bars {
@@ -375,13 +699,6 @@ defineEmits<{
 
 :global(.light) .stat-bars {
   border-color: rgba(0, 0, 0, 0.05);
-}
-
-.protagonist-note {
-  text-align: center;
-  padding: 16px 0;
-  color: #71717a;
-  font-size: 14px;
 }
 
 .psych-content,
@@ -429,6 +746,15 @@ defineEmits<{
     flex-wrap: wrap;
     gap: 8px;
   }
+}
+
+.empty-hint {
+  font-size: 14px;
+  color: #71717a;
+}
+
+.rules-grid .empty-hint {
+  padding: 12px 0;
 }
 
 .hidden-fetish {

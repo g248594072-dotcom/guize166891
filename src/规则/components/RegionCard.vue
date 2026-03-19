@@ -14,23 +14,36 @@
       </div>
     </div>
     <div class="card-footer">
-      <button @click="$emit('openModal', 'edit_region')">
+      <button class="footer-btn edit" @click="$emit('openModal', 'edit_region', regionPayload)">
         <i class="fa-solid fa-pen"></i>
-        <span>编辑区域规则</span>
+        <span>编辑</span>
+      </button>
+      <button class="footer-btn delete" @click="$emit('openModal', 'delete_region', regionPayload)">
+        <i class="fa-solid fa-trash"></i>
+        <span>删除</span>
       </button>
     </div>
   </article>
 </template>
 
 <script setup lang="ts">
-defineProps<{
+import { computed } from 'vue';
+
+const props = defineProps<{
   name: string;
   ruleCount: number;
   rules: string[];
+  region?: { id?: string; name: string; description?: string; rules?: string[] };
 }>();
 
+const regionPayload = computed(() => props.region ?? {
+  id: props.name,
+  name: props.name,
+  description: Array.isArray(props.rules) ? props.rules.join('\n') : '',
+});
+
 defineEmits<{
-  (e: 'openModal', type: string): void;
+  (e: 'openModal', type: string, payload?: Record<string, any>): void;
 }>();
 </script>
 
@@ -123,9 +136,11 @@ defineEmits<{
   padding: 12px;
   border-top: 1px solid rgba(255, 255, 255, 0.05);
   background: rgba(255, 255, 255, 0.01);
+  display: flex;
+  gap: 8px;
 
-  button {
-    width: 100%;
+  .footer-btn {
+    flex: 1;
     padding: 10px;
     border-radius: 8px;
     font-size: 14px;
@@ -142,6 +157,11 @@ defineEmits<{
     &:hover {
       color: #fff;
       background: rgba(255, 255, 255, 0.05);
+    }
+
+    &.delete:hover {
+      color: #ef4444;
+      background: rgba(239, 68, 68, 0.1);
     }
   }
 }
