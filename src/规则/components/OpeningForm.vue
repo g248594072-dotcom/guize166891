@@ -31,14 +31,14 @@
           <button class="nav-btn back-btn" @click="goToPage('cover')">
             <i class="fa-solid fa-arrow-left"></i>
           </button>
-          <span class="page-number">第一章</span>
+          <span class="page-number">场景</span>
           <button class="nav-btn next-btn" @click="goToPage('rules')">
             <i class="fa-solid fa-arrow-right"></i>
           </button>
         </div>
         <div class="page-content">
-          <h2 class="chapter-title">选择你的舞台</h2>
-          <p class="chapter-desc">每个故事都需要一个开始的地点...</p>
+          <h2 class="chapter-title">场景</h2>
+          <p class="chapter-desc">选择故事发生的地点与氛围...</p>
 
           <div class="scene-grid">
             <div
@@ -74,13 +74,13 @@
           <button class="nav-btn back-btn" @click="goToPage('scene')">
             <i class="fa-solid fa-arrow-left"></i>
           </button>
-          <span class="page-number">第二章</span>
+          <span class="page-number">世界规则</span>
           <button class="nav-btn next-btn" @click="goToPage('characters')">
             <i class="fa-solid fa-arrow-right"></i>
           </button>
         </div>
         <div class="page-content">
-          <h2 class="chapter-title">设定世界规则</h2>
+          <h2 class="chapter-title">世界规则</h2>
           <p class="chapter-desc">选择将在世界中生效的基础法则...</p>
 
           <div class="rules-section">
@@ -155,13 +155,13 @@
           <button class="nav-btn back-btn" @click="goToPage('rules')">
             <i class="fa-solid fa-arrow-left"></i>
           </button>
-          <span class="page-number">第三章</span>
+          <span class="page-number">角色</span>
           <button class="nav-btn next-btn" @click="goToPage('opening_detail')">
             <i class="fa-solid fa-arrow-right"></i>
           </button>
         </div>
         <div class="page-content">
-          <h2 class="chapter-title">添加登场角色</h2>
+          <h2 class="chapter-title">角色</h2>
           <p class="chapter-desc">为你的故事添加一些重要人物...</p>
 
           <div class="character-form">
@@ -230,21 +230,21 @@
           <button class="nav-btn back-btn" @click="goToPage('characters')">
             <i class="fa-solid fa-arrow-left"></i>
           </button>
-          <span class="page-number">第四章</span>
+          <span class="page-number">开局场景</span>
           <button class="nav-btn next-btn" @click="goToPage('confirm')">
             <i class="fa-solid fa-arrow-right"></i>
           </button>
         </div>
         <div class="page-content">
-          <h2 class="chapter-title">细化开场白场景</h2>
-          <p class="chapter-desc">你可以在这里写更详细的开场画面、氛围、镜头与细节（会追加到开局第一句后）。</p>
+          <h2 class="chapter-title">开局场景</h2>
+          <p class="chapter-desc">你可以在这里补全更详细的开局画面、氛围、镜头与细节（会追加到开局第一句后）。</p>
 
           <div class="custom-scene">
-            <label class="custom-label">开场白场景描述（可选）</label>
+            <label class="custom-label">开局场景描述（可选）</label>
             <textarea
               v-model="openingSceneDetail"
               class="custom-textarea"
-              placeholder="例如：时间（清晨/雨夜）、光线、气味、背景人群、你希望第一幕出现的关键物件/事件..."
+              placeholder="例如：时间（清晨/雨夜）、光线、气味、背景人群、你希望开局第一幕出现的关键物件/事件..."
               rows="6"
             ></textarea>
           </div>
@@ -257,11 +257,11 @@
           <button class="nav-btn back-btn" @click="goToPage('opening_detail')">
             <i class="fa-solid fa-arrow-left"></i>
           </button>
-          <span class="page-number">终章</span>
+          <span class="page-number">开局场景准备开始~</span>
           <div class="nav-btn placeholder"></div>
         </div>
         <div class="page-content">
-          <h2 class="chapter-title">准备开始</h2>
+          <h2 class="chapter-title">开局场景准备开始~</h2>
           <p class="chapter-desc">确认你的设定，开启这段旅程...</p>
 
           <div class="summary-section">
@@ -270,7 +270,7 @@
               <span class="summary-value">{{ selectedScene?.name || '自定义场景' }}</span>
             </div>
             <div class="summary-item">
-              <span class="summary-label">开场白细节</span>
+              <span class="summary-label">开局场景细节</span>
               <span class="summary-value">{{ openingSceneDetail.trim() ? '已填写' : '未填写' }}</span>
             </div>
             <div class="summary-item">

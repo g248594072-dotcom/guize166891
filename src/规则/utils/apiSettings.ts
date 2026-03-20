@@ -366,8 +366,8 @@ ${tasksDescription || '- 根据正文内容分析变量变化，按照变量更�
 ## 输出示例
 <UpdateVariable>
 [
-  { "op": "replace", "path": "/游戏状态/回合数", "value": 5 },
-  { "op": "add", "path": "/角色/主角/好感度", "value": 10 }
+  { "op": "replace", "path": "/元信息/进度", "value": 5 },
+  { "op": "replace", "path": "/角色档案/角色键/数值/好感度", "value": 10 }
 ]
 </UpdateVariable>`;
 }

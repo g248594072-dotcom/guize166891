@@ -41,7 +41,7 @@
         <div class="stats">
           <div class="stat-row">
             <span class="label">好感度 AFFECTION</span>
-            <span class="value">{{ char.affection }}%</span>
+            <span class="value">{{ formatAffection(char.affection) }}</span>
           </div>
           <div class="stat-row">
             <span class="label">发情值 LUST</span>
@@ -79,6 +79,11 @@ function toDisplayName(name: unknown, fallback: string) {
   if (!n) return fallback;
   if (n === '未知' || n === '未命名') return fallback;
   return n;
+}
+
+function formatAffection(v: number) {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return '0';
+  return String(Math.round(v));
 }
 
 async function loadCharacters() {

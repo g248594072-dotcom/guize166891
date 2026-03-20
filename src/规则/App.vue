@@ -139,7 +139,8 @@
                 @mousedown="onMaintextMouseDown"
                 @mouseup="onMaintextLongPressEnd"
                 @mouseleave="onMaintextLongPressEnd"
-                @touchstart.prevent="onMaintextTouchStart"
+                @touchstart="onMaintextTouchStart"
+                @touchmove="onMaintextTouchMove"
                 @touchend="onMaintextLongPressEnd"
                 @touchcancel="onMaintextLongPressEnd"
                 @contextmenu.prevent
@@ -243,7 +244,7 @@
             id="llm-input"
             v-model="userInput"
             placeholder="输入指令或描述..."
-            rows="4"
+            rows="1"
             :disabled="isGenerating"
             @keydown.enter.prevent="sendMessage"
           />
@@ -543,7 +544,7 @@
                 v-model="variableRerollPatchText"
                 class="edit-maintext-textarea"
                 rows="16"
-                placeholder='例如：[{ "op": "replace", "path": "/游戏状态/回合数", "value": 5 }]'
+                placeholder='例如：[{ "op": "replace", "path": "/元信息/进度", "value": 5 }]'
               />
               <div class="edit-maintext-actions">
                 <button type="button" class="btn-secondary" @click="closeVariableRerollDialog">取消</button>
@@ -619,6 +620,10 @@
           <div class="modal-body">
             <div class="tag-validation-content">
               <p class="validation-intro">AI 输出标签检核结果：</p>
+
+              <div class="ai-output-time" v-if="lastGenerationTime">
+                AI 输出时间：{{ lastGenerationTime }}
+              </div>
 
               <div class="tag-status-list">
                 <div
@@ -820,15 +825,16 @@ const viewMode = ref<'normal' | 'reader' | 'save'>('normal'); // 正常 | 阅读
 const isFullscreen = ref(false); // 是否全屏
 
 // 阅读模式数据
-const maintextHistory = ref<Array<{ messageId: number; maintext: string; timestamp?: string }>>([]);
+const maintextHistory = ref<Array<{ messageId: number; maintext: string; turnNumber?: number; timestamp?: string }>>([]);
 
 // 读档模式数据
-const saveHistory = ref<Array<{ messageId: number; sum: string; timestamp?: string }>>([]);
+const saveHistory = ref<Array<{ messageId: number; sum: string; turnNumber?: number; timestamp?: string }>>([]);
 
 // 标签验证弹窗状态
 const isTagDialogOpen = ref(false);
 const tagCheckResults = ref<TagCheckResult[]>([]);
 const lastGenerationRaw = ref('');
+const lastGenerationTime = ref('');
 const lastUserInputSnapshot = ref('');
 const lastMaintextSnapshot = ref('');
 const lastOptionsSnapshot = ref<Option[]>([]);
@@ -849,6 +855,7 @@ const currentMessageInfo = ref<{
   fullMessage?: string;
 }>({});
 const longPressTimerRef = ref<ReturnType<typeof setTimeout> | null>(null);
+const maintextTouchStartPos = ref<{ x: number; y: number } | null>(null);
 
 // 单独重roll变量：预览/编辑与待提交数据
 const variableRerollDialogOpen = ref(false);
@@ -886,6 +893,19 @@ watch(
 // 输出模式变更处理
 function onOutputModeChange(mode: OutputMode) {
   console.log(`🔄 [App] 输出模式变更为: ${mode}`);
+}
+
+function formatAiOutputTime(date: Date): string {
+  try {
+    return date.toLocaleTimeString('zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+  } catch {
+    return date.toLocaleTimeString();
+  }
 }
 
 function onLayoutChange(layout: { scale: number; maxWidth: number; heightMode: 'fit' | 'custom'; maxHeight: number }) {
@@ -975,13 +995,6 @@ const modalTitles: Record<string, string> = {
   edit_character_fetish: '编辑性癖与敏感带',
 };
 const modalTitle = computed(() => modalTitles[modalType.value] || (modalType.value.includes('add') ? '新增条目' : '编辑条目'));
-
-const logEntries = [
-  { type: 'system', time: '10:42:01', content: '世界规则 <span class="highlight">「猫娘语癖」</span> 已生效。所有女性角色的对话输出将自动附加后缀。' },
-  { type: 'event', time: '10:45:22', content: '神宫寺 琉璃 进入了 <span class="highlight">「圣华女子高级中学」</span> 区域。区域规则已覆盖。' },
-  { type: 'user', time: '10:46:00', content: '让琉璃去上厕所。' },
-  { type: 'llm', time: '10:46:15', content: '琉璃红着脸，双腿微微夹紧。她想起了这里的规则，咬了咬下唇，屈辱地举起手："老、老师...我...我是不能憋住尿的废物小穴...请允许我去洗手间...喵..."<br><br><span class="subtext">（心理状态更新：羞耻度上升，顺从度微弱上升）</span>' },
-];
 
 // 防抖：防止短时间内重复点击
 let lastClickTime = 0;
@@ -1221,9 +1234,8 @@ async function sendMessage() {
   mainText.value = '';
   options.value = [];
 
-  let unsubscribeStream: (() => void) | null = null;
+  let unsubscribeStream: any = null;
   let streamSubscriptionSuccess = false;
-  let hasReceivedStream = false;
   let isThinkingComplete = false; // 标记是否已完成 thinking 标签的过滤
 
   // 检测当前输出模式
@@ -1251,7 +1263,6 @@ async function sendMessage() {
       // 监听流式传输事件
       if (iframe_events.STREAM_TOKEN_RECEIVED_FULLY) {
         const streamHandler = (text: string) => {
-          hasReceivedStream = true;
           streamTextBuffer.value = text;
 
           // 过滤机制：检查是否所有过滤标签都已闭合
@@ -1354,7 +1365,7 @@ async function sendMessage() {
     // 清理流式监听（确保即使 generate 失败也能清理）
     if (streamSubscriptionSuccess && unsubscribeStream) {
       try {
-        unsubscribeStream();
+        unsubscribeStream?.();
         console.log('✅ [App] 流式事件监听已清理');
       } catch (err) {
         console.error('❌ [App] 清理流式事件监听失败:', err);
@@ -1391,7 +1402,7 @@ async function sendMessage() {
     // 清理流式监听
     if (unsubscribeStream) {
       try {
-        unsubscribeStream();
+        unsubscribeStream?.();
       } catch (e) {
         // 忽略
       }
@@ -1517,8 +1528,10 @@ function onMaintextLongPressStart(e: MouseEvent | TouchEvent) {
     return;
   }
 
-  // 阻止默认行为（文本选择、上下文菜单等）
-  if (e.cancelable) {
+  // 桌面端：阻止文本选择/上下文菜单等默认行为
+  // 移动端：不要在 touchstart 阶段 preventDefault，否则会直接影响滚动手势
+  const isTouchEvent = 'touches' in e;
+  if (!isTouchEvent && e.cancelable) {
     e.preventDefault();
   }
   e.stopPropagation();
@@ -1540,6 +1553,7 @@ function onMaintextLongPressEnd() {
     clearTimeout(longPressTimerRef.value);
     longPressTimerRef.value = null;
   }
+  maintextTouchStartPos.value = null;
 }
 
 function onMaintextMouseDown(e: MouseEvent) {
@@ -1554,9 +1568,30 @@ function onMaintextMouseDown(e: MouseEvent) {
 function onMaintextTouchStart(e: TouchEvent) {
   console.log('[长按] 触摸开始', { hasMenu: !!contextMenu.value, hasValidId: hasValidMessageId() });
   if (contextMenu.value) return;
-  e.stopPropagation();
   if (hasValidMessageId()) {
+    const touch = e.touches[0] ?? e.changedTouches[0];
+    if (touch) {
+      maintextTouchStartPos.value = { x: touch.clientX, y: touch.clientY };
+    }
     onMaintextLongPressStart(e);
+  }
+}
+
+function onMaintextTouchMove(e: TouchEvent) {
+  if (!longPressTimerRef.value) return;
+  const startPos = maintextTouchStartPos.value;
+  if (!startPos) return;
+
+  const touch = e.touches[0];
+  if (!touch) return;
+
+  const dx = Math.abs(touch.clientX - startPos.x);
+  const dy = Math.abs(touch.clientY - startPos.y);
+
+  // 手指明显移动则认为是滚动操作，取消长按计时
+  const cancelDistancePx = 10;
+  if (Math.hypot(dx, dy) >= cancelDistancePx) {
+    onMaintextLongPressEnd();
   }
 }
 
@@ -1709,7 +1744,7 @@ async function handleRegenerateVariablesOnly() {
       try {
         // 复用 apiSettings 里的常量名，避免写死字符串
         const { WORLDBOOK_ENTRIES } = await import('./utils/apiSettings');
-        const worldbookName = (SillyTavern.getCharacterInfo?.()?.worldbook_name) || '规则系统';
+        const worldbookName = ((SillyTavern as any).getCharacterInfo?.()?.worldbook_name) || '规则系统';
         const entries = await getWorldbook(worldbookName);
         const findContent = (name: string) =>
           (entries.find((e: any) => (e?.name || '').includes(name))?.content || '').trim();
@@ -1931,7 +1966,7 @@ function closeContextMenu() {
 }
 
 // 上下文菜单样式（计算属性确保边界安全）
-const contextMenuStyle = computed(() => {
+const contextMenuStyle = computed((): any => {
   if (!contextMenu.value) return {};
   const menuWidth = 200;
   const menuHeight = 140;
@@ -2122,6 +2157,7 @@ async function rollbackToSnapshot() {
 
     // 4. 清理临时状态
     lastGenerationRaw.value = '';
+    lastGenerationTime.value = '';
     pendingUserMessageId.value = null;
     isTagDialogOpen.value = false;
     showAiOutput.value = false; // 重置展开状态
@@ -2137,8 +2173,10 @@ async function rollbackToSnapshot() {
 // 打开标签验证弹窗
 function openTagValidationDialog(rawText: string) {
   lastGenerationRaw.value = rawText;
+  lastGenerationTime.value = formatAiOutputTime(new Date());
   tagCheckResults.value = validateTags(rawText);
   isTagDialogOpen.value = true;
+  showAiOutput.value = false; // 默认折叠“AI 完整输出”
   console.log('🔍 [App] 打开标签验证弹窗:', tagCheckResults.value);
 }
 
@@ -2175,6 +2213,7 @@ async function onTagDialogIgnore() {
 
   // 清理状态
   lastGenerationRaw.value = '';
+  lastGenerationTime.value = '';
   pendingUserMessageId.value = null;
   lastUserInputSnapshot.value = '';
   lastMaintextSnapshot.value = '';
@@ -2225,6 +2264,7 @@ async function onTagDialogRollback() {
     // 清理状态
     pendingUserMessageId.value = null;
     lastGenerationRaw.value = '';
+    lastGenerationTime.value = '';
     isTagDialogOpen.value = false;
     isGenerating.value = false;
     isInitializing.value = false;
@@ -2409,7 +2449,7 @@ async function handleOpeningSubmit(formData: OpeningFormData) {
   isOpeningPhase.value = true; // 标记为开局流程
   console.log('🎮 [App] 开始初始化游戏...', formData);
 
-  let unsubscribeStream: (() => void) | null = null;
+  let unsubscribeStream: any = null;
   let streamSubscriptionSuccess = false;
 
   // 检测当前输出模式
@@ -2532,7 +2572,7 @@ async function handleOpeningSubmit(formData: OpeningFormData) {
 
       // 清理流式监听
       if (streamSubscriptionSuccess && unsubscribeStream) {
-        try { unsubscribeStream(); } catch (err) { }
+        try { unsubscribeStream?.(); } catch (err) { }
       }
 
       // 验证结果
@@ -2571,7 +2611,7 @@ async function handleOpeningSubmit(formData: OpeningFormData) {
 }
 
 // 组件挂载时加载消息并监听事件
-let unsubscribeMessageUpdate: (() => void) | null = null;
+let unsubscribeMessageUpdate: any = null;
 
 onMounted(() => {
   // 检查游戏阶段并加载内容
@@ -4029,7 +4069,7 @@ onUnmounted(() => {
 }
 
 .input-area {
-  padding: var(--space-xl) calc(32px * var(--ui-scale, 1));
+  padding: var(--space-lg) calc(32px * var(--ui-scale, 1));
   border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
 
@@ -4043,75 +4083,110 @@ onUnmounted(() => {
   border-color: rgba(0, 0, 0, 0.05);
 }
 
+// 输入框 + 发送：一体条（flex），避免按钮浮在框内产生缝隙
 .input-wrapper {
-  position: relative;
+  display: flex;
+  align-items: stretch;
   max-width: calc(1000px * var(--ui-scale, 1));
   margin: 0 auto;
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  transition: box-shadow 0.2s, border-color 0.2s;
+
+  &:focus-within {
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25);
+    border-color: rgba(255, 255, 255, 0.2);
+  }
 
   textarea {
-    width: 100%;
-    border-radius: var(--radius-xl);
-    padding: var(--space-lg) calc(64px * var(--ui-scale, 1)) var(--space-lg) var(--space-xl);
-    font-size: calc(16px * var(--ui-scale, 1));
+    flex: 1;
+    min-width: 0;
+    width: auto;
+    border: none;
+    border-radius: 0;
+    padding: var(--space-md) var(--space-md) var(--space-md) var(--space-xl);
+    font-size: calc(15px * var(--ui-scale, 1));
+    line-height: 1.5;
     resize: none;
     outline: none;
-    transition: all 0.2s;
+    background: transparent;
+    color: inherit;
+    transition: color 0.2s, opacity 0.2s;
 
-    &:focus {
-      box-shadow: 0 0 0 1px currentColor;
+    &::placeholder {
+      color: #52525b;
+    }
+
+    &:disabled {
+      opacity: 0.75;
+      cursor: not-allowed;
     }
   }
 }
 
-.dark .input-wrapper textarea {
+.dark .input-wrapper {
+  border-color: rgba(255, 255, 255, 0.1);
   background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
   color: #fff;
 
-  &::placeholder { color: #52525b; }
-
-  &:focus {
-    border-color: rgba(255, 255, 255, 0.2);
+  &:focus-within {
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.22);
   }
 
-  &:disabled {
-    background: rgba(255, 255, 255, 0.02);
-    border-color: rgba(255, 255, 255, 0.05);
-    color: #71717a;
-    cursor: not-allowed;
+  textarea {
+    &::placeholder {
+      color: #52525b;
+    }
+
+    &:disabled {
+      color: #71717a;
+    }
   }
 }
 
-.light .input-wrapper textarea {
+.light .input-wrapper {
+  border-color: rgba(0, 0, 0, 0.1);
   background: #fff;
-  border: 1px solid rgba(0, 0, 0, 0.1);
   color: #18181b;
 
-  &::placeholder { color: #a1a1aa; }
-
-  &:focus {
-    border-color: rgba(0, 0, 0, 0.2);
+  &:focus-within {
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.18);
+    border-color: rgba(0, 0, 0, 0.18);
   }
 
-  &:disabled {
-    background: rgba(0, 0, 0, 0.02);
-    border-color: rgba(0, 0, 0, 0.05);
-    color: #a1a1aa;
-    cursor: not-allowed;
+  textarea {
+    &::placeholder {
+      color: #a1a1aa;
+    }
+
+    &:disabled {
+      color: #a1a1aa;
+    }
   }
 }
 
-// 发送按钮 - 原版酒馆风格：深灰背景 + 浅灰图标，悬停略亮，发送中灰+旋转
+// 发送按钮：贴在输入条右侧，与框共用外轮廓
 .send-btn {
-  position: absolute;
-  bottom: var(--space-lg);
-  right: var(--space-lg);
-  padding: var(--space-md);
-  border-radius: var(--radius-lg);
+  position: static;
+  transform: none;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  min-width: calc(72px * var(--ui-scale, 1));
+  padding: 0 var(--space-lg);
+  margin: 0;
   border: none;
+  border-radius: 0;
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
   cursor: pointer;
-  transition: all 0.2s;
-  font-size: calc(20px * var(--ui-scale, 1));
+  font-size: calc(14px * var(--ui-scale, 1));
+  font-weight: 500;
+  transition: background 0.2s, color 0.2s;
 
   &:disabled {
     cursor: not-allowed;
@@ -4124,6 +4199,7 @@ onUnmounted(() => {
 .main-panel.dark .send-btn {
   background: #363f46;
   color: #a9a9a9;
+  border-left-color: rgba(255, 255, 255, 0.12);
 
   &:hover:not(:disabled) {
     background: #434d58;
@@ -4139,6 +4215,7 @@ onUnmounted(() => {
 .main-panel.light .send-btn {
   background: #e5e7eb;
   color: #6b7280;
+  border-left-color: rgba(0, 0, 0, 0.08);
 
   &:hover:not(:disabled) {
     background: #d1d5db;
@@ -4491,18 +4568,21 @@ onUnmounted(() => {
 // 标签验证弹窗样式 - 紧凑设计
 .tag-validation-overlay {
   z-index: 10001;
-  padding: 8px; // 减少 padding
+  align-items: flex-start; // 更靠上显示，避免遮住底部输入框
+  justify-content: center;
+  padding: 16px;
+  padding-top: calc(72px * var(--ui-scale, 1));
 }
 
 .tag-validation-modal {
-  max-width: 380px; // 减小弹窗最大宽度
+  max-width: 420px; // 调整弹窗宽度，使尺寸更接近酒馆对话框
   width: 100%;
-  max-height: 90vh; // 限制最大高度
+  max-height: 85vh; // 限制最大高度
   overflow-y: auto;
 }
 
 .tag-validation-modal .modal-header {
-  padding: 16px 20px; // 减少 header padding
+  padding: 14px 18px; // 减少 header padding
 
   h2 {
     font-size: 16px; // 减小标题字体
@@ -4510,19 +4590,27 @@ onUnmounted(() => {
 }
 
 .tag-validation-modal .modal-body {
-  padding: 16px 20px; // 减少 body padding
+  padding: 14px 18px; // 减少 body padding
   min-height: auto; // 移除 min-height 限制
 }
 
 .tag-validation-modal .modal-footer {
-  padding: 16px 20px; // 减少 footer padding
+  padding: 14px 18px; // 减少 footer padding
 }
 
 .tag-validation-content {
   .validation-intro {
     font-size: 13px;
     color: #a1a1aa;
+    margin-bottom: 6px;
+  }
+
+  .ai-output-time {
+    font-size: 12px;
     margin-bottom: 12px;
+    font-family: monospace;
+    opacity: 0.95;
+    color: #a1a1aa;
   }
 
   .tag-status-list {
@@ -4607,12 +4695,14 @@ onUnmounted(() => {
 
 .dark .tag-validation-content {
   .validation-intro { color: #a1a1aa; }
+  .ai-output-time { color: #a1a1aa; }
   .tag-name { color: #e4e4e7; }
   .tag-message { color: #71717a; }
 }
 
 .light .tag-validation-content {
   .validation-intro { color: #71717a; }
+  .ai-output-time { color: #71717a; }
   .tag-name { color: #27272a; }
   .tag-message { color: #a1a1aa; }
 

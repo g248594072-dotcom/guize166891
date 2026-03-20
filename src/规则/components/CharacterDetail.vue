@@ -76,7 +76,7 @@
           </div>
           <div class="stat-row edit">
             <span class="label">好感度</span>
-            <input v-model.number="editForm.affection" type="number" class="edit-value" min="0" max="100" />
+            <input v-model.number="editForm.affection" type="number" class="edit-value" min="-100" max="100" />
           </div>
           <div class="stat-row edit">
             <span class="label">发情值</span>
@@ -96,9 +96,19 @@
             <StatRow label="体质" :value="displayPhysique" />
           </div>
           <div class="stat-bars">
-            <StatBar label="好感度 AFFECTION" :value="`${displayAffection}/100`" :percentage="displayAffection" />
-            <StatBar label="发情值 LUST" :value="`${displayLust}/100`" :percentage="displayLust" />
+            <StatBar
+              label="好感度 AFFECTION"
+              :value="affectionValueLabel"
+              :percentage="affectionBarPercent"
+            />
+            <StatBar label="发情值 LUST" :value="`${displayLust}/100`" :percentage="lustBarPercent" />
             <StatBar label="性癖开发值 FETISH" :value="`${displayFetish}/100`" :percentage="displayFetish" />
+          </div>
+          <div class="physiology-summary">
+            <span class="section-label">当前综合生理描述</span>
+            <p class="thought-text">
+              {{ displayPhysiologicalDesc }}
+            </p>
           </div>
         </template>
       </article>
@@ -246,6 +256,7 @@ const currentExtra = ref<{
   fetishes?: string[];
   sensitiveParts?: string[];
   hiddenFetish?: string;
+  physiologicalDesc?: string;
 }>({});
 
 const affectedPersonalRules = ref<RuleData[]>([]);
@@ -273,6 +284,20 @@ const displayAffection = computed(() => savedForm.value.affection);
 const displayLust = computed(() => savedForm.value.lust);
 const displayFetish = computed(() => savedForm.value.fetish);
 
+const affectionBarPercent = computed(() => {
+  const a = Number(displayAffection.value);
+  if (!Number.isFinite(a)) return 50;
+  return Math.min(100, Math.max(0, ((a + 100) / 200) * 100));
+});
+
+const affectionValueLabel = computed(() => `${displayAffection.value} (−100~100)`);
+
+const lustBarPercent = computed(() => {
+  const v = Number(displayLust.value);
+  if (!Number.isFinite(v)) return 0;
+  return Math.min(100, Math.max(0, v));
+});
+
 const isEditingBasic = ref(false);
 const editForm = ref({ ...savedForm.value });
 
@@ -290,6 +315,12 @@ const displayHiddenFetish = computed(() => {
   const v = currentExtra.value.hiddenFetish;
   if (typeof v === 'string' && v.trim().length > 0) return v;
   return '暂无';
+});
+
+const displayPhysiologicalDesc = computed(() => {
+  const v = currentExtra.value.physiologicalDesc;
+  if (typeof v === 'string' && v.trim().length > 0) return v;
+  return '暂无（由剧情与数值跨阶变化时更新）';
 });
 const characterStatusText = ref('出场中');
 
@@ -323,6 +354,7 @@ onMounted(async () => {
       fetishes: (current as any).fetishes,
       sensitiveParts: (current as any).sensitiveParts,
       hiddenFetish: (current as any).hiddenFetish,
+      physiologicalDesc: (current as any).currentPhysiologicalDesc,
     };
     characterStatusText.value = (current as any).status === 'active' ? '出场中' : '暂时退场';
 
@@ -364,6 +396,7 @@ async function onFinishEditBasic() {
       age: editForm.value.age,
       height: editForm.value.height,
       weight: editForm.value.weight,
+      threeSize: editForm.value.threeSize,
       physique: editForm.value.physique,
       affection: typeof editForm.value.affection === 'number' ? editForm.value.affection : parseInt(String(editForm.value.affection), 10) || 0,
       lust: typeof editForm.value.lust === 'number' ? editForm.value.lust : parseInt(String(editForm.value.lust), 10) || 0,
@@ -701,6 +734,35 @@ const emit = defineEmits<{
 
 :global(.light) .stat-bars {
   border-color: rgba(0, 0, 0, 0.05);
+}
+
+.physiology-summary {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+
+  .section-label {
+    display: block;
+    font-size: 12px;
+    color: #71717a;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 8px;
+  }
+
+  .thought-text {
+    font-size: 14px;
+    color: #d4d4d8;
+    line-height: 1.6;
+  }
+}
+
+:global(.light) .physiology-summary {
+  border-color: rgba(0, 0, 0, 0.05);
+
+  .thought-text {
+    color: #3f3f46;
+  }
 }
 
 .psych-content,
