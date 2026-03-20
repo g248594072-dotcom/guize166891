@@ -4,7 +4,12 @@
  */
 
 import { parseMaintext, parseOptions, type Option } from './messageParser';
-import { getCurrentOutputMode, getSecondaryApiConfig, processWithSecondaryApi } from './apiSettings';
+import {
+  getCurrentOutputMode,
+  getSecondaryApiConfig,
+  isSecondaryApiConfigured,
+  processWithSecondaryApi,
+} from './apiSettings';
 
 // 生成状态
 let isGenerating = false;
@@ -303,7 +308,7 @@ async function executeDualApiFlow(prompt: string, generationId: string): Promise
 
   // 3. 获取第二API配置
   const secondaryConfig = await getSecondaryApiConfig();
-  if (!secondaryConfig || !secondaryConfig.url) {
+  if (!isSecondaryApiConfigured(secondaryConfig)) {
     console.warn('⚠️ [gameFlow] 第二API未配置，仅使用主API结果');
     return mainResult;
   }

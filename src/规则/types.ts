@@ -222,6 +222,8 @@ export interface SecondaryApiConfig {
   key: string;
   model: string;
   maxRetries: number;
+  /** 为 true 时运行时从 SillyTavern 当前聊天补全（插头）读取 URL / 密钥 / 模型，不保存密钥到变量 */
+  useTavernMainConnection?: boolean;
   tasks: {
     includeVariableUpdate: boolean;
     includeWorldTrend: boolean;

@@ -7,6 +7,20 @@ import type { OutputMode, SecondaryApiConfig } from '../types';
 import type { WorldbookEntry } from '../types';
 import { normalizeOpenAiUrl } from './openaiUrl';
 
+/** 无存档或未配置第二 API 时使用的默认：双 API 流程中的第二路走酒馆插头 */
+export const DEFAULT_SECONDARY_API_CONFIG: SecondaryApiConfig = {
+  url: '',
+  key: '',
+  model: '',
+  maxRetries: 3,
+  useTavernMainConnection: true,
+  tasks: {
+    includeVariableUpdate: true,
+    includeWorldTrend: false,
+    includeResidentLife: false,
+  },
+};
+
 // 类型声明
 declare function waitGlobalInitialized<T>(global: 'Mvu' | string): Promise<T>;
 declare const Mvu: {
@@ -101,10 +115,10 @@ export async function getCurrentOutputMode(): Promise<OutputMode> {
   try {
     const { readGameData } = await import('./variableReader');
     const gameData = await readGameData();
-    return gameData.player?.settings?.outputMode || 'single';
+    return gameData.player?.settings?.outputMode || 'dual';
   } catch (error) {
-    console.warn('⚠️ [apiSettings] 获取输出模式失败，默认使用单API模式:', error);
-    return 'single';
+    console.warn('⚠️ [apiSettings] 获取输出模式失败，默认使用双API模式:', error);
+    return 'dual';
   }
 }
 
@@ -112,22 +126,24 @@ export async function getCurrentOutputMode(): Promise<OutputMode> {
  * 获取第二API配置
  * @returns 第二API配置或null
  */
-export async function getSecondaryApiConfig(): Promise<SecondaryApiConfig | null> {
+export async function getSecondaryApiConfig(): Promise<SecondaryApiConfig> {
   try {
     const { readGameData } = await import('./variableReader');
     const gameData = await readGameData();
     const config = gameData.player?.settings?.secondaryApi;
 
     if (!config) {
-      return null;
+      return { ...DEFAULT_SECONDARY_API_CONFIG };
     }
 
-    // 返回完整配置（带默认值）
+    // 返回完整配置（与默认合并，避免旧存档缺字段）
     return {
+      ...DEFAULT_SECONDARY_API_CONFIG,
       url: config.url || '',
       key: config.key || '',
       model: config.model || '',
-      maxRetries: config.maxRetries ?? 3,
+      maxRetries: config.maxRetries ?? DEFAULT_SECONDARY_API_CONFIG.maxRetries,
+      useTavernMainConnection: config.useTavernMainConnection === true,
       tasks: {
         includeVariableUpdate: config.tasks?.includeVariableUpdate ?? true,
         includeWorldTrend: config.tasks?.includeWorldTrend ?? false,
@@ -136,7 +152,7 @@ export async function getSecondaryApiConfig(): Promise<SecondaryApiConfig | null
     };
   } catch (error) {
     console.warn('⚠️ [apiSettings] 获取第二API配置失败:', error);
-    return null;
+    return { ...DEFAULT_SECONDARY_API_CONFIG };
   }
 }
 
@@ -168,6 +184,34 @@ export async function saveSecondaryApiConfig(config: SecondaryApiConfig): Promis
   }
 }
 
+/** 第二 API 是否已配置（含「使用酒馆相同连接」） */
+export function isSecondaryApiConfigured(config: SecondaryApiConfig | null | undefined): boolean {
+  if (!config) return false;
+  if (config.useTavernMainConnection === true) return true;
+  return Boolean(String(config.url || '').trim());
+}
+
+/**
+ * 测试「使用酒馆相同 API」时第二 API 是否可走通（经 `generateRaw`，不读取页面密钥）
+ */
+export async function testSecondaryApiTavernPlug(modelOverride?: string): Promise<void> {
+  if (typeof generateRaw !== 'function') {
+    throw new Error('generateRaw 不可用');
+  }
+  const modelTrim = String(modelOverride || '').trim();
+  const cfg: Parameters<typeof generateRaw>[0] = {
+    user_input: '',
+    should_stream: false,
+    should_silence: true,
+    max_chat_history: 0,
+    ordered_prompts: [{ role: 'user', content: 'Reply with exactly one word: OK' }],
+  };
+  if (modelTrim) {
+    cfg.custom_api = { model: modelTrim };
+  }
+  await generateRaw(cfg);
+}
+
 /**
  * 使用第二API处理变量更新
  * @param maintext 主API生成的正文内容
@@ -180,6 +224,10 @@ export async function processWithSecondaryApi(
 ): Promise<string> {
   const maxRetries = config.maxRetries || 3;
   let lastError: Error | null = null;
+
+  if (!config.useTavernMainConnection && !String(config.url || '').trim()) {
+    throw new Error('第二 API URL 未配置');
+  }
 
   // 获取当前变量数据
   let currentVariables: Record<string, any> = {};
@@ -225,8 +273,10 @@ export async function processWithSecondaryApi(
         worldbookContents,
       );
 
-      // 调用第二API
-      const response = await callSecondaryApi(prompt, config);
+      // 调用第二API（酒馆插头走 generateRaw，不经 fetch 读密钥）
+      const response = config.useTavernMainConnection
+        ? await callSecondaryApiViaGenerateRaw(prompt, config)
+        : await callSecondaryApi(prompt, config);
 
       // 解析响应
       const updateVariable = extractUpdateVariable(response);
@@ -373,12 +423,43 @@ ${tasksDescription || '- 根据正文内容分析变量变化，按照变量更�
 }
 
 /**
- * 调用第二API
+ * 通过酒馆助手 `generateRaw` 调用当前聊天补全连接（与主对话同一「插头」）
+ */
+async function callSecondaryApiViaGenerateRaw(
+  prompt: string,
+  config: SecondaryApiConfig,
+): Promise<string> {
+  if (typeof generateRaw !== 'function') {
+    throw new Error('generateRaw 不可用，无法使用酒馆相同 API');
+  }
+  const modelTrim = String(config.model || '').trim();
+  const genConfig: Parameters<typeof generateRaw>[0] = {
+    user_input: '',
+    should_stream: false,
+    should_silence: true,
+    max_chat_history: 0,
+    ordered_prompts: [
+      { role: 'system', content: '你是一个专业的游戏变量更新助手。' },
+      { role: 'user', content: prompt },
+    ],
+  };
+  if (modelTrim) {
+    genConfig.custom_api = { model: modelTrim };
+  }
+  const result = await generateRaw(genConfig);
+  return String(result ?? '');
+}
+
+/**
+ * 调用第二API（自定义 URL + fetch）
  * @param prompt 提示词
  * @param config API配置
  * @returns API响应文本
  */
 async function callSecondaryApi(prompt: string, config: SecondaryApiConfig): Promise<string> {
+  if (!String(config.url || '').trim()) {
+    throw new Error('第二 API URL 未配置');
+  }
   const normalized = normalizeOpenAiUrl(config.url);
   const response = await fetch(normalized.chatCompletionsUrl, {
     method: 'POST',

@@ -109,6 +109,15 @@
           <button class="header-btn" @click="refreshMessage" title="刷新内容">
             <i class="fa-solid fa-rotate-right"></i>
           </button>
+          <button
+            v-if="!mainText && !isGenerating && !isRegenerating"
+            class="header-btn header-btn-recover"
+            type="button"
+            title="正文为空时：撤回最后一条用户发言并填入酒馆输入框"
+            @click="onRecoverLastUserMessage"
+          >
+            <i class="fa-solid fa-arrow-rotate-left"></i>
+          </button>
           <button class="header-btn" @click="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏'">
             <i :class="isFullscreen ? 'fa-solid fa-compress' : 'fa-solid fa-expand'"></i>
           </button>
@@ -702,7 +711,7 @@ import {
   createOpeningStoryMessage,
   isNewGame,
 } from './utils/gameInitializer';
-import { updateWorldbookEntriesByMode } from './utils/apiSettings';
+import { updateWorldbookEntriesByMode, isSecondaryApiConfigured } from './utils/apiSettings';
 import { startIframeHeightFix } from './utils/iframeHeightFix';
 
 // 游戏阶段管理
@@ -1215,6 +1224,59 @@ function refreshMessage() {
   loadMessageContent();
 }
 
+/**
+ * 正文为空时：删除最后一条用户发言，将其内容写入酒馆对话框（供重新发送）
+ */
+async function onRecoverLastUserMessage() {
+  const ok = window.confirm(
+    '这将删除最后一次的用户发言并且把用户发言放置到对话框内，是否执行。',
+  );
+  if (!ok) return;
+
+  try {
+    if (typeof getLastMessageId !== 'function' || typeof getChatMessages !== 'function') {
+      toastr.error('当前环境无法访问聊天消息接口');
+      return;
+    }
+    const lastId = getLastMessageId();
+    if (lastId < 1) {
+      toastr.warning('没有可恢复的用户发言');
+      return;
+    }
+
+    const range = `0-${lastId}`;
+    const users = getChatMessages(range, { role: 'user', hide_state: 'unhidden' });
+    if (!users.length) {
+      toastr.warning('没有可恢复的用户发言');
+      return;
+    }
+
+    const lastUser = users[users.length - 1]!;
+    const text = String(lastUser.message ?? '').trim();
+    if (!text) {
+      toastr.warning('最后一条用户发言为空');
+      return;
+    }
+
+    const mid = lastUser.message_id;
+    if (typeof deleteChatMessages !== 'function') {
+      toastr.error('deleteChatMessages 不可用');
+      return;
+    }
+    await deleteChatMessages([mid], { refresh: 'affected' });
+
+    const { sendToDialog } = await import('./utils/dialogAndVariable');
+    await sendToDialog(text);
+
+    currentMessageId.value = undefined;
+    loadMessageContent();
+    toastr.success('已删除该条用户发言，内容已填入对话框');
+  } catch (e) {
+    console.error('❌ [App] 恢复用户发言失败:', e);
+    toastr.error('操作失败: ' + String(e));
+  }
+}
+
 // 发送消息（同层前端界面核心功能）
 async function sendMessage() {
   const content = userInput.value.trim();
@@ -1336,7 +1398,7 @@ async function sendMessage() {
     if (isDualMode && result) {
       try {
         const { processWithSecondaryApi } = await import('./utils/apiSettings');
-        if (secondaryApiConfig && secondaryApiConfig.url) {
+        if (isSecondaryApiConfigured(secondaryApiConfig)) {
           console.log('🔄 [App] 双API模式：调用第二API处理变量...');
 
           // 提取 maintext 内容
@@ -1644,7 +1706,7 @@ async function handleRegenerate() {
     });
 
     // 双API模式：调用第二API处理变量
-    if (isDualMode && result && secondaryApiConfig?.url) {
+    if (isDualMode && result && isSecondaryApiConfigured(secondaryApiConfig)) {
       try {
         const { processWithSecondaryApi } = await import('./utils/apiSettings');
         const maintextMatch = result.match(/<maintext>([\s\S]*?)<\/maintext>/i);
@@ -1791,11 +1853,11 @@ ${maintext}
 
     // 生成新的 UpdateVariable
     let updateVariable = '';
-    if (mode === 'dual' && secondaryApiConfig?.url) {
+    if (mode === 'dual' && isSecondaryApiConfigured(secondaryApiConfig)) {
       // 双API：优先走第二 API（generateRaw + 短上下文）
       const { processWithSecondaryApi } = await import('./utils/apiSettings');
       updateVariable = await processWithSecondaryApi(maintext, secondaryApiConfig);
-    } else if (secondaryApiConfig?.url) {
+    } else if (isSecondaryApiConfigured(secondaryApiConfig)) {
       // 单API但配置了第二 API：同样可以走第二 API 来“只重roll变量”
       const { processWithSecondaryApi } = await import('./utils/apiSettings');
       updateVariable = await processWithSecondaryApi(maintext, secondaryApiConfig);
@@ -2552,7 +2614,7 @@ async function handleOpeningSubmit(formData: OpeningFormData) {
       console.log('✅ [App] generate 完成，结果长度:', result?.length || 0);
 
       // 双API模式：调用第二API处理变量
-      if (isDualMode && result && secondaryApiConfig?.url) {
+      if (isDualMode && result && isSecondaryApiConfigured(secondaryApiConfig)) {
         try {
           const { processWithSecondaryApi } = await import('./utils/apiSettings');
           const maintextMatch = result.match(/<maintext>([\s\S]*?)<\/maintext>/i);
@@ -2572,7 +2634,11 @@ async function handleOpeningSubmit(formData: OpeningFormData) {
 
       // 清理流式监听
       if (streamSubscriptionSuccess && unsubscribeStream) {
-        try { unsubscribeStream?.(); } catch (err) { }
+        try {
+          unsubscribeStream?.();
+        } catch {
+          /* 流式监听已释放或宿主不支持 */
+        }
       }
 
       // 验证结果
@@ -2629,8 +2695,9 @@ onMounted(() => {
         const safeMaxWidth = Number(uiLayout.value.maxWidth);
         const safeMaxHeight = Number(uiLayout.value.maxHeight);
         uiLayout.value.scale = Number.isFinite(safeScale) ? Math.min(1.3, Math.max(0.8, safeScale)) : 1;
-        uiLayout.value.maxWidth = Number.isFinite(safeMaxWidth) ? Math.max(320, safeMaxWidth) : 1400;
-        uiLayout.value.maxHeight = Number.isFinite(safeMaxHeight) ? Math.max(320, safeMaxHeight) : 850;
+        // 最小宽度 800：避免变量里写入过小值导致界面缩成一条
+        uiLayout.value.maxWidth = Number.isFinite(safeMaxWidth) ? Math.min(2400, Math.max(800, safeMaxWidth)) : 1400;
+        uiLayout.value.maxHeight = Number.isFinite(safeMaxHeight) ? Math.max(400, safeMaxHeight) : 850;
       }
     } catch (e) {
       console.warn('⚠️ [App] 读取 uiLayout 设置失败:', e);
@@ -3092,6 +3159,26 @@ onUnmounted(() => {
 
 .light .header-btn.active {
   color: #2563eb;
+}
+
+.header-btn-recover {
+  color: #f59e0b;
+}
+
+.dark .header-btn-recover {
+  color: #fbbf24;
+
+  &:hover {
+    color: #fde68a;
+  }
+}
+
+.light .header-btn-recover {
+  color: #d97706;
+
+  &:hover {
+    color: #b45309;
+  }
 }
 
 // 游戏内容区域

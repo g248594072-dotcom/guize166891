@@ -178,6 +178,25 @@ async function getGameMvuData(): Promise<MvuData> {
 }
 
 /**
+ * 将规则「状态」映射为前端 active/inactive（兼容模型常用同义词「激活」「启用」）
+ */
+function ruleStatusToUi(状态: unknown): 'active' | 'inactive' {
+  const s = String(状态 ?? '').trim();
+  if (s === '生效中' || s === '激活' || s === '启用') return 'active';
+  if (s === '已归档') return 'inactive';
+  return 'inactive';
+}
+
+/** 规则条目正文：优先「效果描述」，空则回退「描述」（兼容错写字段名） */
+function pickRuleEffectDesc(value: Record<string, any> | undefined | null): string {
+  if (!value || typeof value !== 'object') return '';
+  const main = value['效果描述'];
+  if (typeof main === 'string' && main.trim() !== '') return main;
+  const alt = value['描述'];
+  return typeof alt === 'string' ? alt : '';
+}
+
+/**
  * 从中文结构「世界规则」映射到 RuleData[]
  */
 function mapWorldRulesFromChinese(stat: Record<string, any>): RuleData[] {
@@ -186,10 +205,9 @@ function mapWorldRulesFromChinese(stat: Record<string, any>): RuleData[] {
 
   return Object.entries(raw).map(([title, value]: [string, any]) => {
     const 状态 = value?.['状态'] ?? '生效中';
-    const desc = value?.['效果描述'] ?? '';
+    const desc = pickRuleEffectDesc(value);
     const 标记 = value?.['标记'];
-    const status: 'active' | 'inactive' | 'pending' =
-      状态 === '生效中' ? 'active' : 状态 === '已归档' ? 'inactive' : 'inactive';
+    const status: 'active' | 'inactive' | 'pending' = ruleStatusToUi(状态);
 
     return {
       id: `world-${title}`,
@@ -210,21 +228,21 @@ function mapRegionalRulesFromChinese(stat: Record<string, any>): RegionData[] {
   if (!raw || typeof raw !== 'object') return [];
 
   return Object.entries(raw).map(([name, value]: [string, any]) => {
-    const desc = value?.['效果描述'] ?? '';
+    const desc = pickRuleEffectDesc(value);
     const 状态 = value?.['状态'] ?? '生效中';
-    const status: 'active' | 'inactive' = 状态 === '生效中' ? 'active' : 'inactive';
+    const status: 'active' | 'inactive' = ruleStatusToUi(状态);
 
     const 子规则Raw = value?.['细分规则'] ?? {};
     const rules: RuleData[] =
       子规则Raw && typeof 子规则Raw === 'object'
         ? Object.entries(子规则Raw).map(([title, r]: [string, any]) => {
             const 状态2 = r?.['状态'] ?? '生效中';
-            const desc2 = r?.['描述'] ?? '';
+            const desc2 = pickRuleEffectDesc(r);
             return {
               id: `regional-${name}-${title}`,
               title,
               desc: desc2,
-              status: 状态2 === '生效中' ? 'active' : 'inactive',
+              status: ruleStatusToUi(状态2),
               category: 'regional',
             } as RuleData;
           })
@@ -248,12 +266,11 @@ function mapPersonalRulesFromChinese(stat: Record<string, any>): RuleData[] {
   if (!raw || typeof raw !== 'object') return [];
 
   return Object.entries(raw).map(([title, value]: [string, any]) => {
-    const desc = value?.['效果描述'] ?? '';
+    const desc = pickRuleEffectDesc(value);
     const 状态 = value?.['状态'] ?? '生效中';
     const 标记 = value?.['标记'];
     const 适用对象 = value?.['适用对象'];
-    const status: 'active' | 'inactive' | 'pending' =
-      状态 === '生效中' ? 'active' : 状态 === '已归档' ? 'inactive' : 'inactive';
+    const status: 'active' | 'inactive' | 'pending' = ruleStatusToUi(状态);
 
     const displayTitle = (() => {
       const n = value?.['名称'];
