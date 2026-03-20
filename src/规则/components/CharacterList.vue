@@ -93,7 +93,7 @@ async function loadCharacters() {
         id: c.id,
         name: toDisplayName((c as any).name, c.id),
         role: '角色',
-        status: c.status === 'dead' ? '死亡' : '活跃',
+        status: c.status === 'active' ? '出场中' : '暂时退场',
         lust: typeof (c as any).stats?.lust === 'number' ? (c as any).stats.lust : 0,
         affection: typeof (c as any).stats?.affection === 'number' ? (c as any).stats.affection : 0,
       });

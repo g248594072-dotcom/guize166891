@@ -185,7 +185,7 @@ function mapWorldRulesFromChinese(stat: Record<string, any>): RuleData[] {
     const desc = value?.['效果描述'] ?? '';
     const 标记 = value?.['标记'];
     const status: 'active' | 'inactive' | 'pending' =
-      状态 === '生效中' ? 'active' : 状态 === '待定' ? 'pending' : 'inactive';
+      状态 === '生效中' ? 'active' : 状态 === '已归档' ? 'inactive' : 'inactive';
 
     return {
       id: `world-${title}`,
@@ -207,8 +207,8 @@ function mapRegionalRulesFromChinese(stat: Record<string, any>): RegionData[] {
 
   return Object.entries(raw).map(([name, value]: [string, any]) => {
     const desc = value?.['效果描述'] ?? '';
-    const 状态 = value?.['状态'] ?? '启用';
-    const status: 'active' | 'inactive' = 状态 === '启用' ? 'active' : 'inactive';
+    const 状态 = value?.['状态'] ?? '生效中';
+    const status: 'active' | 'inactive' = 状态 === '生效中' ? 'active' : 'inactive';
 
     const 子规则Raw = value?.['细分规则'] ?? {};
     const rules: RuleData[] =
@@ -249,7 +249,7 @@ function mapPersonalRulesFromChinese(stat: Record<string, any>): RuleData[] {
     const 标记 = value?.['标记'];
     const 适用对象 = value?.['适用对象'];
     const status: 'active' | 'inactive' | 'pending' =
-      状态 === '生效中' ? 'active' : 状态 === '待定' ? 'pending' : 'inactive';
+      状态 === '生效中' ? 'active' : 状态 === '已归档' ? 'inactive' : 'inactive';
 
     return {
       id: `personal-${title}`,
@@ -273,7 +273,7 @@ function mapCharactersFromChinese(stat: Record<string, any>): CharacterData[] {
   return Object.entries(raw).map(([id, value]: [string, any]) => {
     const name = value?.['姓名'] ?? id;
     const 描写 = value?.['描写'] ?? '';
-    const 状态 = value?.['状态'] ?? '存活';
+    const 状态 = value?.['状态'] ?? '出场中';
 
     const 当前内心想法 = value?.['当前内心想法'] ?? '';
     const 性格 = Array.isArray(value?.['性格']) ? value?.['性格'] : [];
@@ -301,7 +301,7 @@ function mapCharactersFromChinese(stat: Record<string, any>): CharacterData[] {
       id,
       name,
       description: 描写,
-      status: 状态 === '存活' ? 'active' : 状态 === '死亡' ? 'dead' : 'inactive',
+      status: 状态 === '出场中' ? 'active' : 'inactive',
       basic,
       stats,
       currentThought: 当前内心想法,

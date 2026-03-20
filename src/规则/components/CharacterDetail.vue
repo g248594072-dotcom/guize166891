@@ -38,7 +38,7 @@
             <h2>{{ name }}</h2>
           </template>
         </div>
-        <p class="meta">ID: {{ characterId }} | 状态: 活跃</p>
+        <p class="meta">ID: {{ characterId }} | 状态: {{ characterStatusText }}</p>
       </div>
       <button v-if="!isEditingBasic" id="btn-edit-basic" class="edit-btn" @click="startEditBasic">
         <i class="fa-solid fa-pen"></i>
@@ -291,6 +291,7 @@ const displayHiddenFetish = computed(() => {
   if (typeof v === 'string' && v.trim().length > 0) return v;
   return '暂无';
 });
+const characterStatusText = ref('出场中');
 
 onMounted(async () => {
   try {
@@ -323,6 +324,7 @@ onMounted(async () => {
       sensitiveParts: (current as any).sensitiveParts,
       hiddenFetish: (current as any).hiddenFetish,
     };
+    characterStatusText.value = (current as any).status === 'active' ? '出场中' : '暂时退场';
 
     // 受影响规则：先仅从「个人规则」按 target 精确匹配，避免串规则
     try {

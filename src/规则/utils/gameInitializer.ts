@@ -138,7 +138,7 @@ C. [选项C描述]
 <JSONPatch>
 [
 ${formData.selectedRules ? formData.selectedRules.map((r: { name: string; desc: string }) => `  { "op": "replace", "path": "/世界规则/${r.name}", "value": { "效果描述": "${r.desc}", "状态": "生效中", "标记": "世界级" } }`).join(',\n') : ''}
-${formData.characters ? formData.characters.map((c: { name: string; desc: string }, i: number) => `,\n  { "op": "replace", "path": "/角色档案/CHR-${String(i + 1).padStart(3, '0')}", "value": { "姓名": "${c.name}", "状态": "存活", "描写": "${c.desc}", "身体信息": { "年龄": 18, "身高": 165, "体重": 50, "三围": "B86 W58 H88", "体质特征": "普通" }, "数值": { "好感度": 30, "发情值": 20, "性癖开发度": 10 } } }`).join('') : ''}
+${formData.characters ? formData.characters.map((c: { name: string; desc: string }, i: number) => `,\n  { "op": "replace", "path": "/角色档案/CHR-${String(i + 1).padStart(3, '0')}", "value": { "姓名": "${c.name}", "状态": "出场中", "描写": "${c.desc}", "身体信息": { "年龄": 18, "身高": 165, "体重": 50, "三围": "B86 W58 H88", "体质特征": "普通" }, "数值": { "好感度": 30, "发情值": 20, "性癖开发度": 10 } } }`).join('') : ''}
 ]
 </JSONPatch>
 </UpdateVariable>`;
