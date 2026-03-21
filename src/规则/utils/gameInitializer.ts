@@ -50,11 +50,7 @@ export async function initializeGameVariables(formData: OpeningFormData): Promis
           },
         };
 
-        // 初始化规则系统
-        vars.stat_data.worldRules = [];
-        vars.stat_data.regionalRules = [];
-        vars.stat_data.personalRules = [];
-        vars.stat_data.characters = [];
+        // 规则与角色仅使用中文「世界规则」「角色档案」等结构，不在此写入英文数组，避免与 MVU / 第二 API 混淆
 
         // 初始化元数据
         vars.stat_data.meta = {
@@ -87,49 +83,105 @@ function buildOpeningPromptContent(formData: OpeningFormData): string {
   const sceneDesc = formData.sceneDescription || '神秘的未知场所';
   const openingDetail = String(formData.openingSceneDetail ?? '').trim();
 
-  let rulesText = '';
-  if (formData.selectedRules && formData.selectedRules.length > 0) {
-    const presetRules = formData.selectedRules.filter((r: { isCustom?: boolean }) => !r.isCustom);
-    const customRules = formData.selectedRules.filter((r: { isCustom?: boolean }) => r.isCustom);
+  const rules = formData.selectedRules ?? [];
+  const presetRules = rules.filter((r: { isCustom?: boolean }) => !r.isCustom);
+  const customRules = rules.filter((r: { isCustom?: boolean }) => r.isCustom);
+  const characters = formData.characters ?? [];
 
-    if (presetRules.length > 0) {
-      rulesText += '预设世界规则：';
-      rulesText += presetRules.map((r: { name: string; desc: string }) => `${r.name}\n${r.desc}`).join('，');
-    }
-    if (customRules.length > 0) {
-      if (presetRules.length > 0) rulesText += '，';
-      rulesText += '添加自定义世界规则：';
-      rulesText += customRules.map((r: { name: string; desc: string }) => `${r.name}\n${r.desc}`).join('，');
-    }
+  const ruleLinesForNarrative: string[] = [];
+  if (presetRules.length > 0) {
+    ruleLinesForNarrative.push(
+      ...presetRules.map((r: { name: string; desc: string }) => `【预设世界规则】${r.name}：${r.desc}`),
+    );
+  }
+  if (customRules.length > 0) {
+    ruleLinesForNarrative.push(
+      ...customRules.map((r: { name: string; desc: string }) => `【自定义世界规则】${r.name}：${r.desc}`),
+    );
   }
 
-  let charsText = '';
-  if (formData.characters && formData.characters.length > 0) {
-    if (rulesText) charsText += ' 。 ';
-    charsText += '添加人物：';
-    charsText += formData.characters.map((c: { name: string; gender: string; desc: string }) => {
-      const gender = c.gender === 'female' ? '女' : c.gender === 'male' ? '男' : '其他';
-      return `${c.name}（${gender}）\n${c.desc}`;
-    }).join(' 。 添加人物：');
+  const charLinesForNarrative = characters.map((c: { name: string; gender: string; desc: string }) => {
+    const gender = c.gender === 'female' ? '女' : c.gender === 'male' ? '男' : '其他';
+    return `【角色】${c.name}（${gender}）：${c.desc}`;
+  });
+
+  // 编号清单：明确要求 <maintext> 逐条体现（便于变量与第二 API 对齐）
+  const checklist: string[] = [];
+  let n = 1;
+  checklist.push(`${n}. 开局地点与整体氛围必须与下列场景设定一致：${sceneDesc}`);
+  n += 1;
+  if (openingDetail) {
+    checklist.push(`${n}. 开场时刻、空间与情节须体现以下补充（不可省略）：${openingDetail}`);
+    n += 1;
+  }
+  for (const r of [...presetRules, ...customRules]) {
+    checklist.push(
+      `${n}. 世界规则「${r.name}」：正文中须点名或明确暗示其效果，并与下列描述一致——${String(r.desc).replace(/\s+/g, ' ').trim()}`,
+    );
+    n += 1;
+  }
+  for (const c of characters) {
+    const gender = c.gender === 'female' ? '女' : c.gender === 'male' ? '男' : '其他';
+    checklist.push(
+      `${n}. 角色「${c.name}」（${gender}）：正文中须有具体出场或互动描写，并与下列设定一致——${String(c.desc).replace(/\s+/g, ' ').trim()}`,
+    );
+    n += 1;
   }
 
-  const openingDetailText = openingDetail ? `开场白场景补充：${openingDetail}。` : '';
+  const enableBits: string[] = [];
+  if (formData.enableWorldRules) enableBits.push('世界级规则已启用');
+  if (formData.enableRegionalRules) enableBits.push('区域规则已启用');
+  if (formData.enablePersonalRules) enableBits.push('个人规则已启用');
+  const enableLine = enableBits.length > 0 ? enableBits.join('；') : '规则开关按表单默认';
 
-  return `故事开始在${sceneDesc}。${openingDetailText}${rulesText}${charsText}。请根据以上信息生成一个开场白，并且保证正文包括所有被描述的内容，来确保变量的正常更新生成。
+  const narrativeBlock = [
+    `【规则开关】${enableLine}`,
+    '',
+    '—— 以下为须在开场剧情中落实的设定（请在下文清单中逐条写进 <maintext>）——',
+    ...ruleLinesForNarrative,
+    ...charLinesForNarrative,
+  ].join('\n');
 
-请严格按照以下格式回复：
+  const checklistBlock = checklist.join('\n');
+
+  const jsonPatchLines: string[] = [];
+  for (const r of rules) {
+    jsonPatchLines.push(
+      `  { "op": "replace", "path": "/世界规则/${r.name}", "value": { "效果描述": "${r.desc}", "状态": "生效中", "标记": "世界级" } }`,
+    );
+  }
+  characters.forEach((c: { name: string; desc: string }, i: number) => {
+    jsonPatchLines.push(
+      `  { "op": "replace", "path": "/角色档案/CHR-${String(i + 1).padStart(3, '0')}", "value": { "姓名": "${c.name}", "状态": "出场中", "描写": "${c.desc}", "当前内心想法": "", "性格": [], "性癖": [], "敏感部位": [], "隐藏性癖": "", "身体信息": { "年龄": 18, "身高": 165, "体重": 50, "三围": "B86 W58 H88", "体质特征": "普通" }, "数值": { "好感度": 30, "发情值": 20, "性癖开发值": 10 }, "当前综合生理描述": "" } }`,
+    );
+  });
+  const jsonPatchInner = jsonPatchLines.join(',\n');
+
+  return `请根据以下开局配置生成**第一回合 AI 回复**（开场白 + 选项 + 总结 + 变量补丁），使正文与变量初始化一致。
+
+## 一、配置摘要
+${narrativeBlock}
+
+## 二、<maintext> 必须逐条覆盖的清单（共 ${checklist.length} 条，缺一不可）
+${checklistBlock}
+
+## 三、输出格式（顺序固定；所有标签必须成对闭合，禁止只写开标签）
+1. 先输出 <maintext>…</maintext>：写成完整叙事段落，自然融入上述清单中的场景、规则名/效果、角色形象与互动，以便后续变量更新能对应正文。
+2. 再输出 <option>…</option>：内含多行，以「A.」「B.」「C.」开头；**必须**以 </option> 闭合。
+3. 再输出 <sum>…</sum>：一句话概括开局；**必须**以 </sum> 闭合。
+4. 最后输出 <UpdateVariable>…</UpdateVariable>：可参考下方示例 JSON Patch 结构，按实际剧情微调路径与值，但须初始化本局已选规则与角色。
 
 <maintext>
-[这里是开场剧情，必须包含所有规则和角色的描述]
+[开场剧情，须覆盖清单全部条目]
 </maintext>
 
 <option>
-A. [选项A描述]
-B. [选项B描述]
-C. [选项C描述]
+A. [选项A]
+B. [选项B]
+C. [选项C]
 </option>
 
-<sum>[一句话总结开局内容]</sum>
+<sum>[一句话总结]</sum>
 
 <UpdateVariable>
 <Analysis>
@@ -137,8 +189,7 @@ C. [选项C描述]
 </Analysis>
 <JSONPatch>
 [
-${formData.selectedRules ? formData.selectedRules.map((r: { name: string; desc: string }) => `  { "op": "replace", "path": "/世界规则/${r.name}", "value": { "效果描述": "${r.desc}", "状态": "生效中", "标记": "世界级" } }`).join(',\n') : ''}
-${formData.characters ? formData.characters.map((c: { name: string; desc: string }, i: number) => `,\n  { "op": "replace", "path": "/角色档案/CHR-${String(i + 1).padStart(3, '0')}", "value": { "姓名": "${c.name}", "状态": "存活", "描写": "${c.desc}", "身体信息": { "年龄": 18, "身高": 165, "体重": 50, "三围": "B86 W58 H88", "体质特征": "普通" }, "数值": { "好感度": 30, "发情值": 20, "性癖开发度": 10 } } }`).join('') : ''}
+${jsonPatchInner}
 ]
 </JSONPatch>
 </UpdateVariable>`;

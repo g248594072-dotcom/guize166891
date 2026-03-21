@@ -4,7 +4,7 @@
       <div class="title-row">
         <h4>{{ title }}</h4>
         <span class="status-badge" :class="status">
-          {{ status === 'active' ? '生效中' : '已停用' }}
+          {{ status === 'active' ? '生效中' : '已归档' }}
         </span>
       </div>
       <p class="desc">{{ desc }}</p>

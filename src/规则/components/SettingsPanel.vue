@@ -135,6 +135,23 @@
       </h3>
 
       <div class="api-config-form" :class="{ dark: isDarkMode, light: !isDarkMode }">
+        <div class="form-group checkbox-row">
+          <div class="task-item">
+            <label class="task-checkbox tavern-sync-label">
+              <input
+                v-model="secondaryApi.useTavernMainConnection"
+                type="checkbox"
+                @change="onTavernMainConnectionToggle"
+              />
+              <span class="checkmark"></span>
+              <span class="task-label">使用与酒馆聊天补全相同的 API 地址、密钥与模型</span>
+            </label>
+            <p class="task-desc">
+              开启后运行时从 SillyTavern 当前插头读取；密钥不会写入游戏变量。Azure OpenAI 等请改用手动填写。
+            </p>
+          </div>
+        </div>
+
         <!-- API URL -->
         <div class="form-group">
           <label class="form-label">
@@ -146,6 +163,7 @@
             type="text"
             class="form-input"
             placeholder="https://api.example.com/v1/chat/completions"
+            :disabled="secondaryApi.useTavernMainConnection"
             @blur="saveApiConfig"
           />
           <p class="form-hint">兼容 OpenAI 格式的 API 地址</p>
@@ -163,6 +181,7 @@
               :type="showApiKey ? 'text' : 'password'"
               class="form-input"
               placeholder="输入你的 API Key"
+              :disabled="secondaryApi.useTavernMainConnection"
               @blur="saveApiConfig"
             />
             <button
@@ -188,13 +207,14 @@
               type="text"
               class="form-input"
               placeholder="输入模型名称（如 gpt-3.5-turbo）"
+              :disabled="secondaryApi.useTavernMainConnection"
               @blur="saveApiConfig"
             />
             <button
               class="fetch-models-btn"
               @click="fetchAvailableModels"
-              :disabled="isFetchingModels || !secondaryApi.url"
-              :title="!secondaryApi.url ? '请先配置 API URL' : '获取可用模型列表'"
+              :disabled="isFetchingModels || !canFetchSecondaryModels"
+              :title="!canFetchSecondaryModels ? '请先配置 API URL 或启用酒馆相同 API' : '获取可用模型列表'"
             >
               <i :class="isFetchingModels ? 'fa-solid fa-spinner fa-spin' : 'fa-solid fa-list'"></i>
               <span>{{ isFetchingModels ? '获取中...' : '获取模型' }}</span>
@@ -251,8 +271,8 @@
             <button
               class="test-btn"
               @click="testConnection"
-              :disabled="isTestingConnection || !secondaryApi.url"
-              :title="!secondaryApi.url ? '请先配置 API URL' : '测试 API 连接'"
+              :disabled="isTestingConnection || !canTestSecondaryConnection"
+              :title="!canTestSecondaryConnection ? '请先配置 API URL 或启用酒馆相同 API' : '测试 API 连接'"
             >
               <i :class="isTestingConnection ? 'fa-solid fa-spinner fa-spin' : 'fa-solid fa-plug'"></i>
               <span>{{ isTestingConnection ? '测试中...' : '测试连接' }}</span>
@@ -382,8 +402,13 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
+import {
+  getTavernMainOpenAiCredentials,
+  getTavernMainOpenAiEndpoint,
+} from '../utils/tavernMainConnection';
 import type { OutputMode, SecondaryApiConfig } from '../types';
 import { normalizeOpenAiUrl } from '../utils/openaiUrl';
+import { DEFAULT_SECONDARY_API_CONFIG, testSecondaryApiTavernPlug } from '../utils/apiSettings';
 
 const props = defineProps<{
   isDarkMode: boolean;
@@ -395,22 +420,47 @@ const emit = defineEmits<{
   (e: 'layoutChange', layout: UiLayoutSettings): void;
 }>();
 
-// 输出模式
-const outputMode = ref<OutputMode>('single');
+// 输出模式（默认双 API，与 apiSettings.getCurrentOutputMode 一致）
+const outputMode = ref<OutputMode>('dual');
 const isUpdatingWorldbook = ref(false);
 
-// 第二API配置
-const secondaryApi = ref<SecondaryApiConfig>({
-  url: '',
-  key: '',
-  model: '',
-  maxRetries: 3,
-  tasks: {
-    includeVariableUpdate: true,
-    includeWorldTrend: false,
-    includeResidentLife: false,
-  },
+// 第二API配置（默认酒馆插头，与 DEFAULT_SECONDARY_API_CONFIG 一致）
+const secondaryApi = ref<SecondaryApiConfig>({ ...DEFAULT_SECONDARY_API_CONFIG });
+
+const canFetchSecondaryModels = computed(() => {
+  if (secondaryApi.value.useTavernMainConnection) return true;
+  return Boolean(String(secondaryApi.value.url || '').trim());
 });
+
+const canTestSecondaryConnection = computed(() => canFetchSecondaryModels.value);
+
+function onTavernMainConnectionToggle() {
+  saveApiConfig();
+  if (secondaryApi.value.useTavernMainConnection) {
+    const ep = getTavernMainOpenAiEndpoint();
+    if (ep) {
+      toastr.success(
+        `第二 API 将走酒馆当前聊天补全${ep.model ? `（当前模型：${ep.model}）` : ''}；模型栏可留空沿用酒馆，或填写覆盖`,
+      );
+    } else {
+      toastr.info('已启用酒馆插头；变量更新将经 generateRaw，不依赖页面读取密钥。若需拉取模型列表，请配置反代/自定义 URL。');
+    }
+  }
+}
+
+/** 自定义第二 API：获取模型列表 / 测速时用的 URL、密钥、模型 */
+function getManualSecondaryFetchCredentials(): { url: string; key: string; model: string } | null {
+  const url = String(secondaryApi.value.url || '').trim();
+  if (!url) {
+    toastr.error('请先填写 API URL');
+    return null;
+  }
+  return {
+    url,
+    key: secondaryApi.value.key,
+    model: secondaryApi.value.model,
+  };
+}
 
 const showApiKey = ref(false);
 const isFetchingModels = ref(false);
@@ -428,10 +478,10 @@ type UiLayoutSettings = {
 };
 
 const uiLayout = ref<UiLayoutSettings>({
-  scale: 1,
-  maxWidth: 1400,
+  scale: 0.8,
+  maxWidth: 900,
   heightMode: 'fit',
-  maxHeight: 850,
+  maxHeight: 400,
 });
 
 // 从变量存储加载设置
@@ -544,74 +594,133 @@ function saveApiConfig() {
   saveSettings();
 }
 
+/** 通过 GET /v1/models（或候选 URL）拉取模型 id 列表 */
+async function runFetchModelsListLoop(cred: { url: string; key: string; model: string }) {
+  const normalized = normalizeOpenAiUrl(cred.url);
+  const errors: string[] = [];
+
+  let data: any = null;
+  let usedUrl: string | null = null;
+
+  for (const url of normalized.modelsUrlCandidates) {
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${cred.key}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        errors.push(`${url} -> HTTP ${response.status}: ${response.statusText}`);
+        if (response.status === 404) continue;
+        continue;
+      }
+
+      data = await response.json();
+      usedUrl = url;
+      break;
+    } catch (e) {
+      errors.push(`${url} -> ${String(e)}`);
+    }
+  }
+
+  if (!data || !usedUrl) {
+    const hint = errors.some((e) => /Failed to fetch/i.test(e))
+      ? '（可能是 CORS/HTTPS 混合内容/证书问题导致浏览器拦截）'
+      : '（可能该服务不支持 /v1/models 接口）';
+    throw new Error(`所有候选模型列表接口都失败了 ${hint}\n${errors.join('\n')}`);
+  }
+
+  const list = Array.isArray(data?.data) ? data.data
+    : Array.isArray(data?.models) ? data.models
+    : null;
+
+  if (!list) {
+    throw new Error(`响应格式不正确（已使用 ${usedUrl}）`);
+  }
+
+  availableModels.value = list
+    .map((m: any) => m?.id || m?.model || m?.name)
+    .filter((s: any) => typeof s === 'string' && s.trim().length > 0)
+    .sort();
+
+  if (availableModels.value.length === 0) {
+    throw new Error(`模型列表为空（已使用 ${usedUrl}）`);
+  }
+
+  toastr.success(`获取到 ${availableModels.value.length} 个可用模型`);
+}
+
 // 获取可用模型列表
 async function fetchAvailableModels() {
-  if (!secondaryApi.value.url) {
-    toastr.warning('请先配置 API URL');
+  if (!canFetchSecondaryModels.value) {
+    toastr.warning('请先配置 API URL，或启用「使用酒馆相同 API」');
     return;
   }
+
+  if (secondaryApi.value.useTavernMainConnection) {
+    const ep = getTavernMainOpenAiEndpoint();
+    if (!ep) {
+      toastr.error('无法从酒馆读取 API 地址（反代或自定义 URL）');
+      return;
+    }
+
+    isFetchingModels.value = true;
+    availableModels.value = [];
+
+    try {
+      const normalized = normalizeOpenAiUrl(ep.url);
+      const keyFromPage = getTavernMainOpenAiCredentials()?.key ?? '';
+
+      if (typeof getModelList === 'function') {
+        try {
+          const list = await getModelList({
+            apiurl: normalized.apiBase,
+            ...(keyFromPage ? { key: keyFromPage } : {}),
+          });
+          if (Array.isArray(list) && list.length > 0) {
+            availableModels.value = list
+              .filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
+              .sort();
+            toastr.success(`获取到 ${availableModels.value.length} 个可用模型`);
+            return;
+          }
+        } catch (e) {
+          console.warn('[SettingsPanel] getModelList 失败:', e);
+        }
+      }
+
+      if (!keyFromPage) {
+        toastr.warning(
+          '无法拉取模型列表（密钥不在页面可读范围）。请留空「模型」以使用酒馆当前模型，或手动填写模型名。',
+        );
+        return;
+      }
+
+      await runFetchModelsListLoop({
+        url: ep.url,
+        key: keyFromPage,
+        model: ep.model || secondaryApi.value.model,
+      });
+    } catch (error) {
+      console.error('获取模型列表失败:', error);
+      toastr.error('获取模型列表失败: ' + String(error));
+    } finally {
+      isFetchingModels.value = false;
+    }
+    return;
+  }
+
+  const cred = getManualSecondaryFetchCredentials();
+  if (!cred) return;
 
   isFetchingModels.value = true;
   availableModels.value = [];
 
   try {
-    const normalized = normalizeOpenAiUrl(secondaryApi.value.url);
-    const errors: string[] = [];
-
-    let data: any = null;
-    let usedUrl: string | null = null;
-
-    for (const url of normalized.modelsUrlCandidates) {
-      try {
-        const response = await fetch(url, {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${secondaryApi.value.key}`,
-            'Content-Type': 'application/json',
-          },
-        });
-
-        if (!response.ok) {
-          errors.push(`${url} -> HTTP ${response.status}: ${response.statusText}`);
-          // 404 很常见：该服务不提供 models endpoint，继续尝试下一个候选
-          if (response.status === 404) continue;
-          // 其它状态也继续尝试下一个候选，最后汇总报错
-          continue;
-        }
-
-        data = await response.json();
-        usedUrl = url;
-        break;
-      } catch (e) {
-        errors.push(`${url} -> ${String(e)}`);
-      }
-    }
-
-    if (!data || !usedUrl) {
-      const hint = errors.some((e) => /Failed to fetch/i.test(e))
-        ? '（可能是 CORS/HTTPS 混合内容/证书问题导致浏览器拦截）'
-        : '（可能该服务不支持 /v1/models 接口）';
-      throw new Error(`所有候选模型列表接口都失败了 ${hint}\n${errors.join('\n')}`);
-    }
-
-    const list = Array.isArray(data?.data) ? data.data
-      : Array.isArray(data?.models) ? data.models
-      : null;
-
-    if (!list) {
-      throw new Error(`响应格式不正确（已使用 ${usedUrl}）`);
-    }
-
-    availableModels.value = list
-      .map((m: any) => m?.id || m?.model || m?.name)
-      .filter((s: any) => typeof s === 'string' && s.trim().length > 0)
-      .sort();
-
-    if (availableModels.value.length === 0) {
-      throw new Error(`模型列表为空（已使用 ${usedUrl}）`);
-    }
-
-    toastr.success(`获取到 ${availableModels.value.length} 个可用模型`);
+    await runFetchModelsListLoop(cred);
   } catch (error) {
     console.error('获取模型列表失败:', error);
     toastr.error('获取模型列表失败: ' + String(error));
@@ -628,8 +737,8 @@ function selectModel(model: string) {
 
 // 测试API连接
 async function testConnection() {
-  if (!secondaryApi.value.url) {
-    toastr.warning('请先配置 API URL');
+  if (!canTestSecondaryConnection.value) {
+    toastr.warning('请先配置 API URL，或启用「使用酒馆相同 API」');
     return;
   }
 
@@ -637,15 +746,26 @@ async function testConnection() {
   connectionStatus.value = null;
 
   try {
-    const normalized = normalizeOpenAiUrl(secondaryApi.value.url);
+    if (secondaryApi.value.useTavernMainConnection) {
+      await testSecondaryApiTavernPlug(secondaryApi.value.model);
+      connectionStatus.value = 'success';
+      connectionMessage.value = '酒馆插头可用（已通过 generateRaw 测试）';
+      toastr.success('API 连接测试成功');
+      return;
+    }
+
+    const cred = getManualSecondaryFetchCredentials();
+    if (!cred) return;
+
+    const normalized = normalizeOpenAiUrl(cred.url);
     const response = await fetch(normalized.chatCompletionsUrl, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${secondaryApi.value.key}`,
+        'Authorization': `Bearer ${cred.key}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: secondaryApi.value.model || 'gpt-3.5-turbo',
+        model: cred.model || 'gpt-3.5-turbo',
         messages: [{ role: 'user', content: 'Hello' }],
         max_tokens: 1,
       }),
@@ -1113,6 +1233,19 @@ async function testConnection() {
   background: #fff;
   border: 1px solid rgba(0, 0, 0, 0.1);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.api-config-form .checkbox-row {
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.light .api-config-form .checkbox-row {
+  border-bottom-color: rgba(0, 0, 0, 0.06);
+}
+
+.tavern-sync-label .task-label {
+  font-weight: 500;
 }
 
 .form-group {

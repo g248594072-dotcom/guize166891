@@ -57,6 +57,10 @@ async function ensureMvuInitialized(): Promise<void> {
   return mvuInitPromise;
 }
 
+function isNonEmptyObject(v: unknown): v is Record<string, unknown> {
+  return v != null && typeof v === 'object' && !Array.isArray(v) && Object.keys(v as object).length > 0;
+}
+
 /**
  * 检查 stat_data 是否有实际内容（不是空对象）
  */
@@ -174,6 +178,25 @@ async function getGameMvuData(): Promise<MvuData> {
 }
 
 /**
+ * 将规则「状态」映射为前端 active/inactive（兼容模型常用同义词「激活」「启用」）
+ */
+function ruleStatusToUi(状态: unknown): 'active' | 'inactive' {
+  const s = String(状态 ?? '').trim();
+  if (s === '生效中' || s === '激活' || s === '启用') return 'active';
+  if (s === '已归档') return 'inactive';
+  return 'inactive';
+}
+
+/** 规则条目正文：优先「效果描述」，空则回退「描述」（兼容错写字段名） */
+function pickRuleEffectDesc(value: Record<string, any> | undefined | null): string {
+  if (!value || typeof value !== 'object') return '';
+  const main = value['效果描述'];
+  if (typeof main === 'string' && main.trim() !== '') return main;
+  const alt = value['描述'];
+  return typeof alt === 'string' ? alt : '';
+}
+
+/**
  * 从中文结构「世界规则」映射到 RuleData[]
  */
 function mapWorldRulesFromChinese(stat: Record<string, any>): RuleData[] {
@@ -182,10 +205,9 @@ function mapWorldRulesFromChinese(stat: Record<string, any>): RuleData[] {
 
   return Object.entries(raw).map(([title, value]: [string, any]) => {
     const 状态 = value?.['状态'] ?? '生效中';
-    const desc = value?.['效果描述'] ?? '';
+    const desc = pickRuleEffectDesc(value);
     const 标记 = value?.['标记'];
-    const status: 'active' | 'inactive' | 'pending' =
-      状态 === '生效中' ? 'active' : 状态 === '待定' ? 'pending' : 'inactive';
+    const status: 'active' | 'inactive' | 'pending' = ruleStatusToUi(状态);
 
     return {
       id: `world-${title}`,
@@ -206,21 +228,21 @@ function mapRegionalRulesFromChinese(stat: Record<string, any>): RegionData[] {
   if (!raw || typeof raw !== 'object') return [];
 
   return Object.entries(raw).map(([name, value]: [string, any]) => {
-    const desc = value?.['效果描述'] ?? '';
-    const 状态 = value?.['状态'] ?? '启用';
-    const status: 'active' | 'inactive' = 状态 === '启用' ? 'active' : 'inactive';
+    const desc = pickRuleEffectDesc(value);
+    const 状态 = value?.['状态'] ?? '生效中';
+    const status: 'active' | 'inactive' = ruleStatusToUi(状态);
 
     const 子规则Raw = value?.['细分规则'] ?? {};
     const rules: RuleData[] =
       子规则Raw && typeof 子规则Raw === 'object'
         ? Object.entries(子规则Raw).map(([title, r]: [string, any]) => {
             const 状态2 = r?.['状态'] ?? '生效中';
-            const desc2 = r?.['描述'] ?? '';
+            const desc2 = pickRuleEffectDesc(r);
             return {
               id: `regional-${name}-${title}`,
               title,
               desc: desc2,
-              status: 状态2 === '生效中' ? 'active' : 'inactive',
+              status: ruleStatusToUi(状态2),
               category: 'regional',
             } as RuleData;
           })
@@ -244,16 +266,23 @@ function mapPersonalRulesFromChinese(stat: Record<string, any>): RuleData[] {
   if (!raw || typeof raw !== 'object') return [];
 
   return Object.entries(raw).map(([title, value]: [string, any]) => {
-    const desc = value?.['效果描述'] ?? '';
+    const desc = pickRuleEffectDesc(value);
     const 状态 = value?.['状态'] ?? '生效中';
     const 标记 = value?.['标记'];
     const 适用对象 = value?.['适用对象'];
-    const status: 'active' | 'inactive' | 'pending' =
-      状态 === '生效中' ? 'active' : 状态 === '待定' ? 'pending' : 'inactive';
+    const status: 'active' | 'inactive' | 'pending' = ruleStatusToUi(状态);
+
+    const displayTitle = (() => {
+      const n = value?.['名称'];
+      if (typeof n === 'string' && n.trim() !== '') return n;
+      const t = value?.['适用对象'];
+      if (typeof t === 'string' && t.trim() !== '') return t;
+      return title;
+    })();
 
     return {
       id: `personal-${title}`,
-      title,
+      title: displayTitle,
       desc,
       status,
       category: 'personal',
@@ -273,7 +302,7 @@ function mapCharactersFromChinese(stat: Record<string, any>): CharacterData[] {
   return Object.entries(raw).map(([id, value]: [string, any]) => {
     const name = value?.['姓名'] ?? id;
     const 描写 = value?.['描写'] ?? '';
-    const 状态 = value?.['状态'] ?? '存活';
+    const 状态 = value?.['状态'] ?? '出场中';
 
     const 当前内心想法 = value?.['当前内心想法'] ?? '';
     const 性格 = Array.isArray(value?.['性格']) ? value?.['性格'] : [];
@@ -295,13 +324,16 @@ function mapCharactersFromChinese(stat: Record<string, any>): CharacterData[] {
     const stats: Record<string, number> = {};
     if (typeof 数值['好感度'] === 'number') stats.affection = 数值['好感度'];
     if (typeof 数值['发情值'] === 'number') stats.lust = 数值['发情值'];
-    if (typeof 数值['性癖开发度'] === 'number') stats.fetish = 数值['性癖开发度'];
+    const fetishVal = 数值['性癖开发值'] ?? 数值['性癖开发度'];
+    if (typeof fetishVal === 'number') stats.fetish = fetishVal;
+
+    const 生理描述 = value?.['当前综合生理描述'];
 
     return {
       id,
       name,
       description: 描写,
-      status: 状态 === '存活' ? 'active' : 状态 === '死亡' ? 'dead' : 'inactive',
+      status: 状态 === '出场中' ? 'active' : 'inactive',
       basic,
       stats,
       currentThought: 当前内心想法,
@@ -309,6 +341,7 @@ function mapCharactersFromChinese(stat: Record<string, any>): CharacterData[] {
       fetishes: 性癖,
       sensitiveParts: 敏感部位,
       hiddenFetish: 隐藏性癖,
+      currentPhysiologicalDesc: typeof 生理描述 === 'string' ? 生理描述 : '',
     } as CharacterData;
   });
 }
@@ -336,38 +369,66 @@ export async function readGameData(): Promise<GameData> {
     settings: {},
   });
 
-  // 读取规则数据
+  // 读取规则与角色：优先使用中文结构（与变量更新规则 / MVU 一致）；仅当对应中文块为空时才回退英文数组
+  const worldRulesCn = mapWorldRulesFromChinese(stat);
+  const regionalRulesCn = mapRegionalRulesFromChinese(stat);
+  const personalRulesCn = mapPersonalRulesFromChinese(stat);
+  const charactersCn = mapCharactersFromChinese(stat);
+
   const worldRulesEn = pick(stat, 'worldRules', []) as RuleData[];
   const regionalRulesEn = pick(stat, 'regionalRules', []) as RegionData[];
   const personalRulesEn = pick(stat, 'personalRules', []) as RuleData[];
   const charactersEn = pick(stat, 'characters', []) as CharacterData[];
 
-  const worldRules =
-    Array.isArray(worldRulesEn) && worldRulesEn.length > 0
+  const worldRules = isNonEmptyObject(stat['世界规则'])
+    ? worldRulesCn
+    : Array.isArray(worldRulesEn) && worldRulesEn.length > 0
       ? worldRulesEn
-      : mapWorldRulesFromChinese(stat);
+      : worldRulesCn;
 
-  const regionalRules =
-    Array.isArray(regionalRulesEn) && regionalRulesEn.length > 0
+  const regionalRules = isNonEmptyObject(stat['区域规则'])
+    ? regionalRulesCn
+    : Array.isArray(regionalRulesEn) && regionalRulesEn.length > 0
       ? regionalRulesEn
-      : mapRegionalRulesFromChinese(stat);
+      : regionalRulesCn;
 
-  const personalRules =
-    Array.isArray(personalRulesEn) && personalRulesEn.length > 0
+  const personalRules = isNonEmptyObject(stat['个人规则'])
+    ? personalRulesCn
+    : Array.isArray(personalRulesEn) && personalRulesEn.length > 0
       ? personalRulesEn
-      : mapPersonalRulesFromChinese(stat);
+      : personalRulesCn;
 
-  const characters =
-    Array.isArray(charactersEn) && charactersEn.length > 0
+  const characters = isNonEmptyObject(stat['角色档案'])
+    ? charactersCn
+    : Array.isArray(charactersEn) && charactersEn.length > 0
       ? charactersEn
-      : mapCharactersFromChinese(stat);
+      : charactersCn;
 
-  // 读取元数据
-  const meta = pick(stat, 'meta', {
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    version: '1.0.0',
-  });
+  // 读取元数据（浅拷贝，避免改写 stat_data 内联对象）
+  const meta = {
+    ...pick(stat, 'meta', {
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      version: '1.0.0',
+    }),
+  };
+
+  const 元信息 = stat['元信息'];
+  if (元信息 && typeof 元信息 === 'object') {
+    const ts = (元信息 as any)['最近更新时间'];
+    if (typeof ts === 'number' && Number.isFinite(ts)) {
+      meta.updatedAt = new Date(ts).toISOString();
+    }
+  }
+
+  const playerNameFromMeta =
+    元信息 && typeof 元信息 === 'object' && typeof (元信息 as any)['玩家名称'] === 'string'
+      ? String((元信息 as any)['玩家名称']).trim()
+      : '';
+  const playerOut = {
+    ...player,
+    ...(playerNameFromMeta ? { name: playerNameFromMeta } : {}),
+  };
 
   const result: GameData = {
     gameStatus,
@@ -375,7 +436,7 @@ export async function readGameData(): Promise<GameData> {
     regionalRules,
     personalRules,
     characters,
-    player,
+    player: playerOut,
     meta,
   };
 

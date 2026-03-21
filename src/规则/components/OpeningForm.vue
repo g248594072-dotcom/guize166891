@@ -22,6 +22,20 @@
             <span>开始阅读</span>
             <i class="fa-solid fa-arrow-right"></i>
           </button>
+          <div class="cover-tools">
+            <button type="button" class="cover-tool-btn" @click="presetPickerOpen = true">
+              <i class="fa-solid fa-layer-group"></i>
+              读取开场预设
+            </button>
+            <button type="button" class="cover-tool-btn" @click="onExportJson">
+              <i class="fa-solid fa-file-export"></i>
+              导出 JSON
+            </button>
+            <button type="button" class="cover-tool-btn" @click="onPickImportJson">
+              <i class="fa-solid fa-file-import"></i>
+              导入 JSON
+            </button>
+          </div>
         </div>
       </div>
 
@@ -31,14 +45,14 @@
           <button class="nav-btn back-btn" @click="goToPage('cover')">
             <i class="fa-solid fa-arrow-left"></i>
           </button>
-          <span class="page-number">第一章</span>
+          <span class="page-number">场景</span>
           <button class="nav-btn next-btn" @click="goToPage('rules')">
             <i class="fa-solid fa-arrow-right"></i>
           </button>
         </div>
         <div class="page-content">
-          <h2 class="chapter-title">选择你的舞台</h2>
-          <p class="chapter-desc">每个故事都需要一个开始的地点...</p>
+          <h2 class="chapter-title">场景</h2>
+          <p class="chapter-desc">选择故事发生的地点与氛围...</p>
 
           <div class="scene-grid">
             <div
@@ -54,6 +68,17 @@
               <h3 class="scene-name">{{ scene.name }}</h3>
               <p class="scene-desc">{{ scene.desc }}</p>
             </div>
+          </div>
+
+          <div class="library-toolbar">
+            <button type="button" class="library-toolbar-btn" @click="sceneSnippetPickerOpen = true">
+              <i class="fa-solid fa-map-location-dot"></i>
+              从场景库取用
+            </button>
+            <button type="button" class="library-toolbar-btn" @click="saveNewSceneToLibrary">
+              <i class="fa-solid fa-bookmark"></i>
+              将当前描述加入场景库
+            </button>
           </div>
 
           <div class="custom-scene">
@@ -74,13 +99,13 @@
           <button class="nav-btn back-btn" @click="goToPage('scene')">
             <i class="fa-solid fa-arrow-left"></i>
           </button>
-          <span class="page-number">第二章</span>
+          <span class="page-number">世界规则</span>
           <button class="nav-btn next-btn" @click="goToPage('characters')">
             <i class="fa-solid fa-arrow-right"></i>
           </button>
         </div>
         <div class="page-content">
-          <h2 class="chapter-title">设定世界规则</h2>
+          <h2 class="chapter-title">世界规则</h2>
           <p class="chapter-desc">选择将在世界中生效的基础法则...</p>
 
           <div class="rules-section">
@@ -112,6 +137,16 @@
 
           <div class="custom-rules-section">
             <h3 class="section-title">自定义规则</h3>
+            <div class="library-toolbar">
+              <button type="button" class="library-toolbar-btn" @click="ruleSnippetPickerOpen = true">
+                <i class="fa-solid fa-box-archive"></i>
+                从规则库添加
+              </button>
+              <button type="button" class="library-toolbar-btn" @click="saveNewRuleToLibrary">
+                <i class="fa-solid fa-bookmark"></i>
+                将表单加入规则库
+              </button>
+            </div>
             <div class="custom-rule-input">
               <input
                 v-model="newRuleName"
@@ -140,9 +175,19 @@
                   <span class="custom-rule-name">{{ rule.name }}</span>
                   <span class="custom-rule-desc">{{ rule.desc }}</span>
                 </div>
-                <button class="remove-btn" @click="removeCustomRule(index)">
-                  <i class="fa-solid fa-trash"></i>
-                </button>
+                <div class="custom-rule-actions">
+                  <button
+                    type="button"
+                    class="library-mini-btn"
+                    title="存入规则库"
+                    @click="saveRuleRowToLibrary(rule)"
+                  >
+                    <i class="fa-solid fa-bookmark"></i>
+                  </button>
+                  <button type="button" class="remove-btn" @click="removeCustomRule(index)">
+                    <i class="fa-solid fa-trash"></i>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -155,14 +200,25 @@
           <button class="nav-btn back-btn" @click="goToPage('rules')">
             <i class="fa-solid fa-arrow-left"></i>
           </button>
-          <span class="page-number">第三章</span>
+          <span class="page-number">角色</span>
           <button class="nav-btn next-btn" @click="goToPage('opening_detail')">
             <i class="fa-solid fa-arrow-right"></i>
           </button>
         </div>
         <div class="page-content">
-          <h2 class="chapter-title">添加登场角色</h2>
+          <h2 class="chapter-title">角色</h2>
           <p class="chapter-desc">为你的故事添加一些重要人物...</p>
+
+          <div class="library-toolbar library-toolbar--characters">
+            <button type="button" class="library-toolbar-btn" @click="characterSnippetPickerOpen = true">
+              <i class="fa-solid fa-box-archive"></i>
+              从角色库添加
+            </button>
+            <button type="button" class="library-toolbar-btn" @click="saveNewCharToLibrary">
+              <i class="fa-solid fa-bookmark"></i>
+              将表单加入角色库
+            </button>
+          </div>
 
           <div class="character-form">
             <div class="form-row">
@@ -209,9 +265,19 @@
                   <span class="char-name">{{ char.name }}</span>
                   <span class="char-desc">{{ char.desc }}</span>
                 </div>
-                <button class="remove-btn" @click="removeCharacter(index)">
-                  <i class="fa-solid fa-trash"></i>
-                </button>
+                <div class="custom-rule-actions">
+                  <button
+                    type="button"
+                    class="library-mini-btn"
+                    title="存入角色库"
+                    @click="saveCharRowToLibrary(char)"
+                  >
+                    <i class="fa-solid fa-bookmark"></i>
+                  </button>
+                  <button type="button" class="remove-btn" @click="removeCharacter(index)">
+                    <i class="fa-solid fa-trash"></i>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -230,21 +296,32 @@
           <button class="nav-btn back-btn" @click="goToPage('characters')">
             <i class="fa-solid fa-arrow-left"></i>
           </button>
-          <span class="page-number">第四章</span>
+          <span class="page-number">开局场景</span>
           <button class="nav-btn next-btn" @click="goToPage('confirm')">
             <i class="fa-solid fa-arrow-right"></i>
           </button>
         </div>
         <div class="page-content">
-          <h2 class="chapter-title">细化开场白场景</h2>
-          <p class="chapter-desc">你可以在这里写更详细的开场画面、氛围、镜头与细节（会追加到开局第一句后）。</p>
+          <h2 class="chapter-title">开局场景</h2>
+          <p class="chapter-desc">你可以在这里补全更详细的开局画面、氛围、镜头与细节（会追加到开局第一句后）。</p>
+
+          <div class="library-toolbar">
+            <button type="button" class="library-toolbar-btn" @click="openingSceneSnippetPickerOpen = true">
+              <i class="fa-solid fa-clapperboard"></i>
+              从开局场景库取用
+            </button>
+            <button type="button" class="library-toolbar-btn" @click="saveNewOpeningSceneToLibrary">
+              <i class="fa-solid fa-bookmark"></i>
+              将当前描述加入开局场景库
+            </button>
+          </div>
 
           <div class="custom-scene">
-            <label class="custom-label">开场白场景描述（可选）</label>
+            <label class="custom-label">开局场景描述（可选）</label>
             <textarea
               v-model="openingSceneDetail"
               class="custom-textarea"
-              placeholder="例如：时间（清晨/雨夜）、光线、气味、背景人群、你希望第一幕出现的关键物件/事件..."
+              placeholder="例如：时间（清晨/雨夜）、光线、气味、背景人群、你希望开局第一幕出现的关键物件/事件..."
               rows="6"
             ></textarea>
           </div>
@@ -257,11 +334,11 @@
           <button class="nav-btn back-btn" @click="goToPage('opening_detail')">
             <i class="fa-solid fa-arrow-left"></i>
           </button>
-          <span class="page-number">终章</span>
+          <span class="page-number">开局场景准备开始~</span>
           <div class="nav-btn placeholder"></div>
         </div>
         <div class="page-content">
-          <h2 class="chapter-title">准备开始</h2>
+          <h2 class="chapter-title">开局场景准备开始~</h2>
           <p class="chapter-desc">确认你的设定，开启这段旅程...</p>
 
           <div class="summary-section">
@@ -270,7 +347,7 @@
               <span class="summary-value">{{ selectedScene?.name || '自定义场景' }}</span>
             </div>
             <div class="summary-item">
-              <span class="summary-label">开场白细节</span>
+              <span class="summary-label">开局场景细节</span>
               <span class="summary-value">{{ openingSceneDetail.trim() ? '已填写' : '未填写' }}</span>
             </div>
             <div class="summary-item">
@@ -281,6 +358,17 @@
               <span class="summary-label">角色数量</span>
               <span class="summary-value">{{ characters.length }} 人</span>
             </div>
+          </div>
+
+          <div class="confirm-presets-row">
+            <button type="button" class="preset-action-btn" @click="savePresetDialogOpen = true">
+              <i class="fa-solid fa-floppy-disk"></i>
+              保存为开场预设
+            </button>
+            <button type="button" class="preset-action-btn" @click="presetPickerOpen = true">
+              <i class="fa-solid fa-folder-open"></i>
+              读取开场预设
+            </button>
           </div>
 
           <div class="confirm-actions">
@@ -298,16 +386,252 @@
       </div>
     </div>
 
+    <!-- 清除编年史（左下角） -->
+    <button type="button" class="chronicle-clear-btn" @click="clearChronicleDialogOpen = true">
+      <i class="fa-solid fa-eraser"></i>
+      <span>清除编年史</span>
+    </button>
+
     <!-- 主题切换按钮 -->
     <button class="theme-toggle" @click="isDarkMode = !isDarkMode">
       <i :class="isDarkMode ? 'fa-solid fa-sun' : 'fa-solid fa-moon'"></i>
     </button>
+
+    <!-- 清除编年史确认 -->
+    <div
+      v-if="clearChronicleDialogOpen"
+      class="chronicle-dialog-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="chronicle-dialog-title"
+      @click.self="clearChronicleDialogOpen = false"
+    >
+      <div class="chronicle-dialog-panel">
+        <h3 id="chronicle-dialog-title" class="chronicle-dialog-title">清除编年史</h3>
+        <p class="chronicle-dialog-desc">
+          将清空<strong>当前角色卡所绑定世界书</strong>中「编年史」条目的<strong>全部正文</strong>，此操作不可撤销。若无该条目则不会创建或修改其他条目。
+        </p>
+        <div class="chronicle-dialog-actions">
+          <button type="button" class="chronicle-dialog-btn cancel" @click="clearChronicleDialogOpen = false">
+            取消
+          </button>
+          <button
+            type="button"
+            class="chronicle-dialog-btn danger"
+            :disabled="clearChronicleLoading"
+            @click="onConfirmClearChronicle"
+          >
+            <i v-if="clearChronicleLoading" class="fa-solid fa-circle-notch fa-spin"></i>
+            <span v-else>确认清除</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <input
+      ref="importFileInputRef"
+      type="file"
+      accept="application/json,.json"
+      class="visually-hidden"
+      tabindex="-1"
+      @change="onImportFileChange"
+    />
+
+    <!-- 选择开场预设 -->
+    <div
+      v-if="presetPickerOpen"
+      class="chronicle-dialog-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="preset-picker-title"
+      @click.self="presetPickerOpen = false"
+    >
+      <div class="chronicle-dialog-panel opening-dialog-panel opening-dialog-panel--wide">
+        <h3 id="preset-picker-title" class="chronicle-dialog-title">选择开场预设</h3>
+        <p class="chronicle-dialog-desc">点击「应用」将覆盖当前表单中的场景、规则与角色。</p>
+        <div v-if="presets.length === 0" class="opening-dialog-empty">暂无保存的预设</div>
+        <ul v-else class="opening-dialog-list">
+          <li v-for="p in presets" :key="p.id" class="opening-dialog-list-item">
+            <div class="opening-dialog-list-main">
+              <span class="opening-dialog-list-name">{{ p.name }}</span>
+              <span class="opening-dialog-list-meta">{{ formatPresetDate(p.createdAt) }}</span>
+            </div>
+            <div class="opening-dialog-list-actions">
+              <button type="button" class="chronicle-dialog-btn" @click="applyOpeningPreset(p)">应用</button>
+              <button type="button" class="chronicle-dialog-btn danger" @click="removePreset(p.id)">删除</button>
+            </div>
+          </li>
+        </ul>
+        <div class="chronicle-dialog-actions">
+          <button type="button" class="chronicle-dialog-btn cancel" @click="presetPickerOpen = false">关闭</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 保存开场预设 -->
+    <div
+      v-if="savePresetDialogOpen"
+      class="chronicle-dialog-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="save-preset-title"
+      @click.self="savePresetDialogOpen = false"
+    >
+      <div class="chronicle-dialog-panel opening-dialog-panel">
+        <h3 id="save-preset-title" class="chronicle-dialog-title">保存为开场预设</h3>
+        <input
+          v-model="presetSaveName"
+          type="text"
+          class="opening-dialog-input"
+          placeholder="预设名称"
+          @keydown.enter.prevent="confirmSavePreset"
+        />
+        <div class="chronicle-dialog-actions">
+          <button type="button" class="chronicle-dialog-btn cancel" @click="savePresetDialogOpen = false">取消</button>
+          <button type="button" class="chronicle-dialog-btn" @click="confirmSavePreset">保存</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 规则库 -->
+    <div
+      v-if="ruleSnippetPickerOpen"
+      class="chronicle-dialog-backdrop"
+      role="dialog"
+      aria-modal="true"
+      @click.self="ruleSnippetPickerOpen = false"
+    >
+      <div class="chronicle-dialog-panel opening-dialog-panel opening-dialog-panel--wide">
+        <h3 class="chronicle-dialog-title">规则库</h3>
+        <p class="chronicle-dialog-desc">点击「添加」加入当前自定义规则列表。</p>
+        <div v-if="ruleSnippets.length === 0" class="opening-dialog-empty">规则库为空，可先在表单填写后点「将表单加入规则库」</div>
+        <ul v-else class="opening-dialog-list opening-dialog-list--scroll">
+          <li v-for="s in ruleSnippets" :key="s.id" class="opening-dialog-list-item opening-dialog-list-item--stack">
+            <div class="opening-dialog-list-main">
+              <span class="opening-dialog-list-name">{{ s.name }}</span>
+              <span class="opening-dialog-list-preview">{{ s.desc }}</span>
+            </div>
+            <div class="opening-dialog-list-actions">
+              <button type="button" class="chronicle-dialog-btn" @click="addRuleFromLibrary(s)">添加</button>
+              <button type="button" class="chronicle-dialog-btn danger" @click="removeRuleSnippet(s.id)">删除</button>
+            </div>
+          </li>
+        </ul>
+        <div class="chronicle-dialog-actions">
+          <button type="button" class="chronicle-dialog-btn cancel" @click="ruleSnippetPickerOpen = false">关闭</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 角色库 -->
+    <div
+      v-if="characterSnippetPickerOpen"
+      class="chronicle-dialog-backdrop"
+      role="dialog"
+      aria-modal="true"
+      @click.self="characterSnippetPickerOpen = false"
+    >
+      <div class="chronicle-dialog-panel opening-dialog-panel opening-dialog-panel--wide">
+        <h3 class="chronicle-dialog-title">角色库</h3>
+        <p class="chronicle-dialog-desc">点击「添加」加入当前角色列表。</p>
+        <div v-if="characterSnippets.length === 0" class="opening-dialog-empty">角色库为空</div>
+        <ul v-else class="opening-dialog-list opening-dialog-list--scroll">
+          <li v-for="s in characterSnippets" :key="s.id" class="opening-dialog-list-item opening-dialog-list-item--stack">
+            <div class="opening-dialog-list-main">
+              <span class="opening-dialog-list-name">{{ s.name }} · {{ genderLabel(s.gender) }}</span>
+              <span class="opening-dialog-list-preview">{{ s.desc }}</span>
+            </div>
+            <div class="opening-dialog-list-actions">
+              <button type="button" class="chronicle-dialog-btn" @click="addCharacterFromLibrary(s)">添加</button>
+              <button type="button" class="chronicle-dialog-btn danger" @click="removeCharacterSnippet(s.id)">删除</button>
+            </div>
+          </li>
+        </ul>
+        <div class="chronicle-dialog-actions">
+          <button type="button" class="chronicle-dialog-btn cancel" @click="characterSnippetPickerOpen = false">关闭</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 场景库（故事场景 / 自定义场景描述） -->
+    <div
+      v-if="sceneSnippetPickerOpen"
+      class="chronicle-dialog-backdrop"
+      role="dialog"
+      aria-modal="true"
+      @click.self="sceneSnippetPickerOpen = false"
+    >
+      <div class="chronicle-dialog-panel opening-dialog-panel opening-dialog-panel--wide">
+        <h3 class="chronicle-dialog-title">场景库</h3>
+        <p class="chronicle-dialog-desc">取用后会切换到「自定义场景」并填入下方文案（会取消已选卡片场景）。</p>
+        <div v-if="sceneSnippets.length === 0" class="opening-dialog-empty">场景库为空，先在「或创建自定义场景」中写好描述后点「将当前描述加入场景库」</div>
+        <ul v-else class="opening-dialog-list opening-dialog-list--scroll">
+          <li v-for="s in sceneSnippets" :key="s.id" class="opening-dialog-list-item opening-dialog-list-item--stack">
+            <div class="opening-dialog-list-main">
+              <span class="opening-dialog-list-name">{{ s.name }}</span>
+              <span class="opening-dialog-list-preview">{{ s.desc }}</span>
+            </div>
+            <div class="opening-dialog-list-actions">
+              <button type="button" class="chronicle-dialog-btn" @click="addSceneFromLibrary(s)">取用</button>
+              <button type="button" class="chronicle-dialog-btn danger" @click="removeSceneSnippet(s.id)">删除</button>
+            </div>
+          </li>
+        </ul>
+        <div class="chronicle-dialog-actions">
+          <button type="button" class="chronicle-dialog-btn cancel" @click="sceneSnippetPickerOpen = false">关闭</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 开局场景库 -->
+    <div
+      v-if="openingSceneSnippetPickerOpen"
+      class="chronicle-dialog-backdrop"
+      role="dialog"
+      aria-modal="true"
+      @click.self="openingSceneSnippetPickerOpen = false"
+    >
+      <div class="chronicle-dialog-panel opening-dialog-panel opening-dialog-panel--wide">
+        <h3 class="chronicle-dialog-title">开局场景库</h3>
+        <p class="chronicle-dialog-desc">点击「取用」将替换当前页的开局场景描述。</p>
+        <div v-if="openingSceneSnippets.length === 0" class="opening-dialog-empty">开局场景库为空</div>
+        <ul v-else class="opening-dialog-list opening-dialog-list--scroll">
+          <li v-for="s in openingSceneSnippets" :key="s.id" class="opening-dialog-list-item opening-dialog-list-item--stack">
+            <div class="opening-dialog-list-main">
+              <span class="opening-dialog-list-name">{{ s.name }}</span>
+              <span class="opening-dialog-list-preview">{{ s.desc }}</span>
+            </div>
+            <div class="opening-dialog-list-actions">
+              <button type="button" class="chronicle-dialog-btn" @click="addOpeningSceneFromLibrary(s)">取用</button>
+              <button type="button" class="chronicle-dialog-btn danger" @click="removeOpeningSceneSnippet(s.id)">删除</button>
+            </div>
+          </li>
+        </ul>
+        <div class="chronicle-dialog-actions">
+          <button type="button" class="chronicle-dialog-btn cancel" @click="openingSceneSnippetPickerOpen = false">关闭</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import type { OpeningFormData } from '../types';
+import { clearChronicle } from '../utils/chronicleUpdater';
+import {
+  type RuleSnippet,
+  type CharacterSnippet,
+  type SceneSnippet,
+  type OpeningSceneSnippet,
+  type OpeningPreset,
+  type OpeningPresetPayload,
+  createStorageId,
+  loadOpeningStorage,
+  saveOpeningStorage,
+  downloadOpeningStorageJson,
+  parseOpeningStorageJson,
+} from '../utils/openingStorage';
 
 const emit = defineEmits<{
   (e: 'submit', data: OpeningFormData): void;
@@ -355,6 +679,366 @@ const newCharDesc = ref('');
 
 // 提交状态
 const isSubmitting = ref(false);
+
+const clearChronicleDialogOpen = ref(false);
+const clearChronicleLoading = ref(false);
+
+// —— localStorage：规则库 / 角色库 / 场景库 / 开局场景库 / 开场预设 ——
+const ruleSnippets = ref<RuleSnippet[]>([]);
+const characterSnippets = ref<CharacterSnippet[]>([]);
+const sceneSnippets = ref<SceneSnippet[]>([]);
+const openingSceneSnippets = ref<OpeningSceneSnippet[]>([]);
+const presets = ref<OpeningPreset[]>([]);
+
+const presetPickerOpen = ref(false);
+const savePresetDialogOpen = ref(false);
+const presetSaveName = ref('');
+const ruleSnippetPickerOpen = ref(false);
+const characterSnippetPickerOpen = ref(false);
+const sceneSnippetPickerOpen = ref(false);
+const openingSceneSnippetPickerOpen = ref(false);
+const importFileInputRef = ref<HTMLInputElement | null>(null);
+
+function persistOpeningStorage() {
+  saveOpeningStorage({
+    version: 1,
+    ruleSnippets: ruleSnippets.value,
+    characterSnippets: characterSnippets.value,
+    sceneSnippets: sceneSnippets.value,
+    openingSceneSnippets: openingSceneSnippets.value,
+    presets: presets.value,
+  });
+}
+
+onMounted(() => {
+  const s = loadOpeningStorage();
+  ruleSnippets.value = s.ruleSnippets;
+  characterSnippets.value = s.characterSnippets;
+  sceneSnippets.value = s.sceneSnippets;
+  openingSceneSnippets.value = s.openingSceneSnippets;
+  presets.value = s.presets;
+});
+
+watch(
+  [ruleSnippets, characterSnippets, sceneSnippets, openingSceneSnippets, presets],
+  persistOpeningStorage,
+  { deep: true },
+);
+
+function capturePresetPayload(): OpeningPresetPayload {
+  return {
+    sceneMode: selectedScene.value ? 'preset' : 'custom',
+    sceneId: selectedScene.value?.id ?? null,
+    customSceneDesc: customSceneDesc.value,
+    selectedRules: [...selectedRules.value],
+    customRules: customRules.value.map(r => ({ name: r.name, desc: r.desc })),
+    characters: characters.value.map(c => ({ name: c.name, gender: c.gender, desc: c.desc })),
+    openingSceneDetail: openingSceneDetail.value,
+  };
+}
+
+function applyPresetPayload(p: OpeningPresetPayload) {
+  openingSceneDetail.value = p.openingSceneDetail ?? '';
+  selectedRules.value = [...p.selectedRules];
+  customRules.value = p.customRules.map(r => ({ name: r.name, desc: r.desc }));
+  characters.value = p.characters.map(c => ({
+    name: c.name,
+    gender: c.gender,
+    desc: c.desc,
+  }));
+
+  if (p.sceneMode === 'preset' && p.sceneId) {
+    const sc = sceneOptions.find(s => s.id === p.sceneId);
+    if (sc) {
+      selectedScene.value = sc;
+      customSceneDesc.value = '';
+    } else {
+      selectedScene.value = null;
+      customSceneDesc.value = p.customSceneDesc ?? '';
+    }
+  } else {
+    selectedScene.value = null;
+    customSceneDesc.value = p.customSceneDesc ?? '';
+  }
+}
+
+function formatPresetDate(iso: string) {
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleString();
+  } catch {
+    return iso;
+  }
+}
+
+function genderLabel(g: string) {
+  if (g === 'male') return '男';
+  if (g === 'other') return '其他';
+  return '女';
+}
+
+function ruleSnippetKey(name: string, desc: string) {
+  return `${name.trim()}\n${desc.trim()}`;
+}
+
+function saveNewRuleToLibrary() {
+  const name = newRuleName.value.trim();
+  const desc = newRuleDesc.value.trim();
+  if (!name || !desc) {
+    toastr.warning('请先在表单中填写完整的规则名称和描述');
+    return;
+  }
+  const key = ruleSnippetKey(name, desc);
+  if (ruleSnippets.value.some(s => ruleSnippetKey(s.name, s.desc) === key)) {
+    toastr.info('规则库中已有相同条目');
+    return;
+  }
+  ruleSnippets.value.push({ id: createStorageId(), name, desc });
+  toastr.success('已加入规则库');
+}
+
+function saveRuleRowToLibrary(rule: { name: string; desc: string }) {
+  const key = ruleSnippetKey(rule.name, rule.desc);
+  if (ruleSnippets.value.some(s => ruleSnippetKey(s.name, s.desc) === key)) {
+    toastr.info('规则库中已有相同条目');
+    return;
+  }
+  ruleSnippets.value.push({ id: createStorageId(), name: rule.name, desc: rule.desc });
+  toastr.success('已加入规则库');
+}
+
+function addRuleFromLibrary(s: RuleSnippet) {
+  customRules.value.push({ name: s.name, desc: s.desc });
+  toastr.success('已添加规则');
+}
+
+function removeRuleSnippet(id: string) {
+  ruleSnippets.value = ruleSnippets.value.filter(x => x.id !== id);
+  toastr.success('已从规则库删除');
+}
+
+function charSnippetKey(name: string, gender: string, desc: string) {
+  return `${name.trim()}\n${gender}\n${desc.trim()}`;
+}
+
+function saveNewCharToLibrary() {
+  const name = newCharName.value.trim();
+  const desc = newCharDesc.value.trim();
+  if (!name || !desc) {
+    toastr.warning('请先在表单中填写完整的角色信息');
+    return;
+  }
+  const key = charSnippetKey(name, newCharGender.value, desc);
+  if (characterSnippets.value.some(s => charSnippetKey(s.name, s.gender, s.desc) === key)) {
+    toastr.info('角色库中已有相同条目');
+    return;
+  }
+  characterSnippets.value.push({
+    id: createStorageId(),
+    name,
+    gender: newCharGender.value,
+    desc,
+  });
+  toastr.success('已加入角色库');
+}
+
+function saveCharRowToLibrary(char: { name: string; gender: string; desc: string }) {
+  const key = charSnippetKey(char.name, char.gender, char.desc);
+  if (characterSnippets.value.some(s => charSnippetKey(s.name, s.gender, s.desc) === key)) {
+    toastr.info('角色库中已有相同条目');
+    return;
+  }
+  characterSnippets.value.push({
+    id: createStorageId(),
+    name: char.name,
+    gender: char.gender,
+    desc: char.desc,
+  });
+  toastr.success('已加入角色库');
+}
+
+function addCharacterFromLibrary(s: CharacterSnippet) {
+  characters.value.push({
+    name: s.name,
+    gender: s.gender,
+    desc: s.desc,
+  });
+  toastr.success('已添加角色');
+}
+
+function removeCharacterSnippet(id: string) {
+  characterSnippets.value = characterSnippets.value.filter(x => x.id !== id);
+  toastr.success('已从角色库删除');
+}
+
+function autoSnippetTitle(text: string, maxLen = 40) {
+  const t = text.trim();
+  const firstLine = (t.split(/\r?\n/)[0] ?? t).trim();
+  if (!firstLine) return '未命名';
+  return firstLine.length > maxLen ? `${firstLine.slice(0, maxLen)}…` : firstLine;
+}
+
+function sceneBodyKey(body: string) {
+  return body.trim();
+}
+
+function saveNewSceneToLibrary() {
+  const body = customSceneDesc.value.trim();
+  if (!body) {
+    toastr.warning('请先在「或创建自定义场景」中填写描述');
+    return;
+  }
+  const key = sceneBodyKey(body);
+  if (sceneSnippets.value.some(s => sceneBodyKey(s.desc) === key)) {
+    toastr.info('场景库中已有相同文案');
+    return;
+  }
+  sceneSnippets.value.push({
+    id: createStorageId(),
+    name: autoSnippetTitle(body),
+    desc: body,
+  });
+  toastr.success('已加入场景库');
+}
+
+function addSceneFromLibrary(s: SceneSnippet) {
+  selectedScene.value = null;
+  customSceneDesc.value = s.desc;
+  sceneSnippetPickerOpen.value = false;
+  toastr.success('已取用场景');
+}
+
+function removeSceneSnippet(id: string) {
+  sceneSnippets.value = sceneSnippets.value.filter(x => x.id !== id);
+  toastr.success('已从场景库删除');
+}
+
+function saveNewOpeningSceneToLibrary() {
+  const body = openingSceneDetail.value.trim();
+  if (!body) {
+    toastr.warning('请先填写开局场景描述');
+    return;
+  }
+  const key = sceneBodyKey(body);
+  if (openingSceneSnippets.value.some(s => sceneBodyKey(s.desc) === key)) {
+    toastr.info('开局场景库中已有相同文案');
+    return;
+  }
+  openingSceneSnippets.value.push({
+    id: createStorageId(),
+    name: autoSnippetTitle(body),
+    desc: body,
+  });
+  toastr.success('已加入开局场景库');
+}
+
+function addOpeningSceneFromLibrary(s: OpeningSceneSnippet) {
+  openingSceneDetail.value = s.desc;
+  openingSceneSnippetPickerOpen.value = false;
+  toastr.success('已取用开局场景');
+}
+
+function removeOpeningSceneSnippet(id: string) {
+  openingSceneSnippets.value = openingSceneSnippets.value.filter(x => x.id !== id);
+  toastr.success('已从开局场景库删除');
+}
+
+function confirmSavePreset() {
+  const name = presetSaveName.value.trim();
+  if (!name) {
+    toastr.warning('请填写预设名称');
+    return;
+  }
+  presets.value.push({
+    id: createStorageId(),
+    name,
+    createdAt: new Date().toISOString(),
+    payload: capturePresetPayload(),
+  });
+  presetSaveName.value = '';
+  savePresetDialogOpen.value = false;
+  toastr.success('开场预设已保存');
+}
+
+function applyOpeningPreset(p: OpeningPreset) {
+  applyPresetPayload(p.payload);
+  presetPickerOpen.value = false;
+  toastr.success(`已应用预设：${p.name}`);
+}
+
+function removePreset(id: string) {
+  presets.value = presets.value.filter(x => x.id !== id);
+  toastr.success('已删除预设');
+}
+
+function onExportJson() {
+  downloadOpeningStorageJson({
+    version: 1,
+    ruleSnippets: ruleSnippets.value,
+    characterSnippets: characterSnippets.value,
+    sceneSnippets: sceneSnippets.value,
+    openingSceneSnippets: openingSceneSnippets.value,
+    presets: presets.value,
+  });
+  toastr.success('已开始下载 JSON 文件');
+}
+
+function onPickImportJson() {
+  importFileInputRef.value?.click();
+}
+
+function onImportFileChange(ev: Event) {
+  const input = ev.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = '';
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    const text = typeof reader.result === 'string' ? reader.result : '';
+    const parsed = parseOpeningStorageJson(text);
+    if (!parsed) {
+      toastr.error('JSON 格式无效或版本不匹配');
+      return;
+    }
+    if (
+      !window.confirm(
+        '将用文件中的规则库、角色库、场景库、开局场景库与开场预设完全替换当前浏览器中的数据，是否继续？',
+      )
+    ) {
+      return;
+    }
+    ruleSnippets.value = parsed.ruleSnippets;
+    characterSnippets.value = parsed.characterSnippets;
+    sceneSnippets.value = parsed.sceneSnippets;
+    openingSceneSnippets.value = parsed.openingSceneSnippets;
+    presets.value = parsed.presets;
+    persistOpeningStorage();
+    toastr.success('导入完成');
+  };
+  reader.onerror = () => toastr.error('读取文件失败');
+  reader.readAsText(file, 'utf-8');
+}
+
+async function onConfirmClearChronicle() {
+  if (clearChronicleLoading.value) return;
+  clearChronicleLoading.value = true;
+  try {
+    const ok = await clearChronicle();
+    if (ok) {
+      toastr.success('编年史已清空');
+      clearChronicleDialogOpen.value = false;
+    } else {
+      toastr.error('清除失败：当前角色卡未绑定世界书或无法写入世界书');
+    }
+  } catch (e) {
+    console.error('[OpeningForm] clearChronicle:', e);
+    toastr.error('清除失败：' + String(e));
+  } finally {
+    clearChronicleLoading.value = false;
+  }
+}
 
 // 计算属性
 const totalRulesCount = computed(() => {
@@ -659,6 +1343,237 @@ async function handleSubmit() {
   }
 }
 
+.cover-tools {
+  margin-top: 22px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+}
+
+.cover-tool-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-soft);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.18s ease;
+
+  &:hover {
+    color: var(--text);
+    border-color: rgba(255, 255, 255, 0.26);
+    background: rgba(255, 255, 255, 0.08);
+  }
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.library-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.library-toolbar--characters {
+  margin-bottom: 16px;
+}
+
+.library-toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-soft);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s ease;
+
+  &:hover {
+    color: var(--text);
+    border-color: rgba(255, 255, 255, 0.24);
+  }
+}
+
+.custom-rule-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.library-mini-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: all 0.18s ease;
+
+  &:hover {
+    color: var(--accent);
+    border-color: rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.06);
+  }
+}
+
+.confirm-presets-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+  margin-bottom: 18px;
+}
+
+.preset-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-soft);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s ease;
+
+  &:hover {
+    color: var(--text);
+    border-color: rgba(255, 255, 255, 0.26);
+  }
+}
+
+.opening-dialog-panel--wide {
+  max-width: 520px;
+  max-height: min(80vh, 640px);
+  display: flex;
+  flex-direction: column;
+}
+
+.opening-dialog-input {
+  width: 100%;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font-size: 14px;
+
+  &:focus {
+    outline: none;
+    border-color: rgba(255, 255, 255, 0.3);
+  }
+}
+
+.opening-dialog-empty {
+  margin: 8px 0 16px;
+  padding: 20px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--text-faint);
+  border-radius: 14px;
+  border: 1px dashed var(--line);
+}
+
+.opening-dialog-list {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.opening-dialog-list--scroll {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  max-height: 360px;
+  padding-right: 4px;
+}
+
+.opening-dialog-list-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.opening-dialog-list-item--stack {
+  flex-direction: column;
+}
+
+.opening-dialog-list-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.opening-dialog-list-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.opening-dialog-list-meta {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.opening-dialog-list-preview {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-soft);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.opening-dialog-list-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.opening-dialog-list-item--stack .opening-dialog-list-actions {
+  align-self: flex-end;
+}
+
 .content-page {
   display: grid;
   grid-template-rows: auto 1fr;
@@ -910,6 +1825,7 @@ async function handleSubmit() {
   display: grid;
   gap: 4px;
   flex: 1;
+  min-width: 0;
 }
 
 .rule-name,
@@ -1115,10 +2031,123 @@ async function handleSubmit() {
   font-size: 12px;
 }
 
+.chronicle-clear-btn {
+  position: fixed;
+  left: 20px;
+  bottom: 20px;
+  z-index: 50;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  height: 44px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--glass);
+  color: var(--text-soft);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  backdrop-filter: blur(12px);
+  transition: all 0.18s ease;
+
+  i {
+    font-size: 14px;
+    opacity: 0.9;
+  }
+
+  &:hover {
+    color: var(--text);
+    border-color: rgba(255, 255, 255, 0.28);
+    transform: translateY(-1px);
+  }
+}
+
+.chronicle-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+}
+
+.chronicle-dialog-panel {
+  width: 100%;
+  max-width: 400px;
+  padding: 22px 22px 18px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: var(--glass-strong);
+  color: var(--text);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(16px);
+}
+
+.chronicle-dialog-title {
+  margin: 0 0 12px;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.chronicle-dialog-desc {
+  margin: 0 0 20px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text-soft);
+}
+
+.chronicle-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.chronicle-dialog-btn {
+  min-width: 88px;
+  padding: 10px 16px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: var(--glass);
+  color: var(--text);
+  transition: background 0.15s ease, border-color 0.15s ease;
+
+  &.cancel:hover {
+    border-color: rgba(255, 255, 255, 0.22);
+  }
+
+  &.danger {
+    border-color: rgba(220, 60, 60, 0.45);
+    background: rgba(220, 60, 60, 0.18);
+    color: var(--danger);
+
+    &:hover:not(:disabled) {
+      background: rgba(220, 60, 60, 0.28);
+    }
+  }
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+}
+
+.opening-form.light .chronicle-dialog-btn.danger {
+  border-color: rgba(220, 60, 60, 0.35);
+  background: rgba(220, 60, 60, 0.12);
+}
+
 .theme-toggle {
   position: fixed;
   right: 20px;
   bottom: 20px;
+  z-index: 50;
   width: 44px;
   height: 44px;
   border-radius: 14px;
@@ -1187,6 +2216,13 @@ async function handleSubmit() {
   .theme-toggle {
     right: 12px;
     bottom: 12px;
+  }
+
+  .chronicle-clear-btn {
+    left: 12px;
+    bottom: 12px;
+    padding: 0 12px;
+    font-size: 12px;
   }
 }
 </style>

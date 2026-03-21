@@ -5,6 +5,7 @@
  */
 
 import type { ChronicleEntry, WorldbookEntry } from '../types';
+import { extractLastSumContent } from './messageParser';
 
 // 编年史条目标题和关键字（用于查找条目）
 const CHRONICLE_ENTRY_TITLE = '编年史';
@@ -31,15 +32,8 @@ function getCurrentCharWorldbookName(): string | null {
 function extractSumFromMessage(messageContent: string): string | null {
   if (!messageContent) return null;
 
-  // 移除 thinking 标签
-  let cleaned = messageContent.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '');
-  cleaned = cleaned.replace(/<redacted_reasoning>[\s\S]*?<\/redacted_reasoning>/gi, '');
-
-  // 提取 <sum> 标签内容
-  const sumMatch = cleaned.match(/<sum>([\s\S]*?)<\/sum>/i);
-  if (!sumMatch || !sumMatch[1]) return null;
-
-  return sumMatch[1].trim();
+  const sumText = extractLastSumContent(messageContent);
+  return sumText || null;
 }
 
 /**

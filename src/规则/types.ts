@@ -66,16 +66,18 @@ export interface CharacterData {
    */
   basic?: CharacterBasic;
   /**
-   * 数值类属性，推荐键名：
-   * - affection: 好感度
+   * 数值类属性（与 MVU 角色档案.数值 对应）：
+   * - affection: 好感度（约 -100~100）
    * - lust: 发情值
-   * - fetish: 性癖开发度
+   * - fetish: 性癖开发值
    */
   stats?: {
     [key: string]: number | [number, string];
   };
   status: 'active' | 'inactive' | 'dead';
   description?: string;
+  /** 对应变量「当前综合生理描述」 */
+  currentPhysiologicalDesc?: string;
   [key: string]: any;
 }
 
@@ -220,6 +222,8 @@ export interface SecondaryApiConfig {
   key: string;
   model: string;
   maxRetries: number;
+  /** 为 true 时运行时从 SillyTavern 当前聊天补全（插头）读取 URL / 密钥 / 模型，不保存密钥到变量 */
+  useTavernMainConnection?: boolean;
   tasks: {
     includeVariableUpdate: boolean;
     includeWorldTrend: boolean;

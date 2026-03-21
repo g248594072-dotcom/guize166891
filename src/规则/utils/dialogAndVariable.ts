@@ -43,6 +43,80 @@ export function updateStatData(updater: (stat: Record<string, any>) => Record<st
   );
 }
 
+/** 写入「元信息.最近更新时间」，与变量更新规则一致 */
+export function bumpMetaInStat(stat: Record<string, any>): void {
+  const cur = stat['元信息'];
+  const base =
+    cur && typeof cur === 'object'
+      ? { ...cur }
+      : { 玩家名称: '玩家', 玩家设置: {}, 当前阶段: '游戏中', 进度: 1 };
+  base['最近更新时间'] = Date.now();
+  stat['元信息'] = base;
+}
+
+function enRuleStatusToZh(status: string | undefined, prev: string): string {
+  if (status === 'active') return '生效中';
+  if (status === 'inactive') return '已归档';
+  return prev || '生效中';
+}
+
+function resolveWorldRuleKey(stat: Record<string, any>, idOrTitle: string): string | null {
+  const wr = stat['世界规则'];
+  if (!wr || typeof wr !== 'object') return null;
+  if (wr[idOrTitle]) return idOrTitle;
+  if (idOrTitle.startsWith('world-')) {
+    const t = idOrTitle.slice('world-'.length);
+    if (wr[t]) return t;
+  }
+  return null;
+}
+
+function resolveRegionKey(stat: Record<string, any>, idOrName: string): string | null {
+  const rr = stat['区域规则'];
+  if (!rr || typeof rr !== 'object') return null;
+  if (rr[idOrName]) return idOrName;
+  if (idOrName.startsWith('region-')) {
+    const n = idOrName.slice('region-'.length);
+    if (rr[n]) return n;
+  }
+  return null;
+}
+
+function resolvePersonalRuleKey(stat: Record<string, any>, idOrTitle: string): string | null {
+  const pr = stat['个人规则'];
+  if (!pr || typeof pr !== 'object') return null;
+  if (pr[idOrTitle]) return idOrTitle;
+  if (idOrTitle.startsWith('personal-')) {
+    const k = idOrTitle.slice('personal-'.length);
+    if (pr[k]) return k;
+  }
+  return null;
+}
+
+function resolveRegionalSubRuleKey(
+  细分规则: Record<string, any>,
+  regionKey: string,
+  ruleIdOrTitle: string,
+): string | null {
+  if (!细分规则 || typeof 细分规则 !== 'object') return null;
+  if (细分规则[ruleIdOrTitle]) return ruleIdOrTitle;
+  const prefix = `regional-${regionKey}-`;
+  if (ruleIdOrTitle.startsWith(prefix)) {
+    const sub = ruleIdOrTitle.slice(prefix.length);
+    if (细分规则[sub]) return sub;
+  }
+  for (const sk of Object.keys(细分规则)) {
+    if (`regional-${regionKey}-${sk}` === ruleIdOrTitle) return sk;
+  }
+  return null;
+}
+
+function parseBodyNumber(raw: string | undefined, fallback: number): number {
+  if (raw == null || raw === '') return fallback;
+  const n = parseInt(String(raw).replace(/[^\d-]/g, ''), 10);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 // ---------- 角色 ----------
 
 export function formatAddCharacterMessage(description: string): string {
@@ -51,17 +125,29 @@ export function formatAddCharacterMessage(description: string): string {
 
 export function addCharacterToVariables(description: string): void {
   const id = `CHR-${Date.now()}`;
-  const newChar: CharacterData = {
-    id,
-    name: description.split('\n')[0]?.trim() || '未命名',
-    stats: {},
-    status: 'active',
-    description: description.trim(),
-  };
+  const text = description.trim();
+  const firstLine = text.split('\n')[0]?.trim() || '未命名';
   updateStatData((stat) => {
-    const list = Array.isArray(stat.characters) ? [...stat.characters] : [];
-    list.push(newChar);
-    return { ...stat, characters: list };
+    const next = { ...stat } as Record<string, any>;
+    if (!next['角色档案'] || typeof next['角色档案'] !== 'object') next['角色档案'] = {};
+    next['角色档案'] = {
+      ...next['角色档案'],
+      [id]: {
+        姓名: firstLine,
+        状态: '出场中',
+        描写: text,
+        当前内心想法: '',
+        性格: [],
+        性癖: [],
+        敏感部位: [],
+        隐藏性癖: '',
+        身体信息: { 年龄: 17, 身高: 160, 体重: 48, 三围: '未知', 体质特征: '普通' },
+        数值: { 好感度: 0, 发情值: 0, 性癖开发值: 0 },
+        当前综合生理描述: '',
+      },
+    };
+    bumpMetaInStat(next);
+    return next;
   });
 }
 
@@ -95,6 +181,7 @@ export function formatEditCharacterBasicMessage(payload: {
   if (payload.age != null) lines.push(`年龄：${payload.age}`);
   if (payload.height != null) lines.push(`身高：${payload.height}`);
   if (payload.weight != null) lines.push(`体重：${payload.weight}`);
+  if (payload.threeSize != null) lines.push(`三围：${payload.threeSize}`);
   if (payload.physique != null) lines.push(`体质：${payload.physique}`);
   if (payload.affection != null) lines.push(`好感度：${payload.affection}`);
   if (payload.lust != null) lines.push(`发情值：${payload.lust}`);
@@ -104,20 +191,37 @@ export function formatEditCharacterBasicMessage(payload: {
 
 export function updateCharacterInVariables(characterId: string, updates: Partial<CharacterData>): void {
   updateStatData((stat) => {
-    const list = Array.isArray(stat.characters) ? [...stat.characters] : [];
-    const idx = list.findIndex((c: any) => c?.id === characterId);
-    if (idx >= 0) {
-      const current = list[idx] || {};
-      const next: any = { ...current, ...updates };
-      if (updates.stats) {
-        next.stats = { ...(current.stats || {}), ...updates.stats };
-      }
-      if (updates.basic) {
-        next.basic = { ...(current.basic || {}), ...updates.basic };
-      }
-      list[idx] = next;
+    const next = { ...stat } as Record<string, any>;
+    if (!next['角色档案'] || typeof next['角色档案'] !== 'object') next['角色档案'] = {};
+    const profiles = { ...next['角色档案'] };
+    const cur = { ...(profiles[characterId] || {}) };
+    const 身体 = { ...(cur['身体信息'] && typeof cur['身体信息'] === 'object' ? cur['身体信息'] : {}) };
+    const 数值 = { ...(cur['数值'] && typeof cur['数值'] === 'object' ? cur['数值'] : {}) };
+
+    if (updates.name != null) cur['姓名'] = updates.name;
+    if (updates.description != null) cur['描写'] = updates.description;
+
+    if (updates.basic) {
+      const b = updates.basic;
+      if (b.age != null) 身体['年龄'] = parseBodyNumber(b.age, Number(身体['年龄']) || 17);
+      if (b.height != null) 身体['身高'] = parseBodyNumber(b.height, Number(身体['身高']) || 160);
+      if (b.weight != null) 身体['体重'] = parseBodyNumber(b.weight, Number(身体['体重']) || 48);
+      if (b.threeSize != null) 身体['三围'] = String(b.threeSize);
+      if (b.physique != null) 身体['体质特征'] = String(b.physique);
     }
-    return { ...stat, characters: list };
+
+    if (updates.stats) {
+      if (typeof updates.stats.affection === 'number') 数值['好感度'] = updates.stats.affection;
+      if (typeof updates.stats.lust === 'number') 数值['发情值'] = updates.stats.lust;
+      if (typeof updates.stats.fetish === 'number') 数值['性癖开发值'] = updates.stats.fetish;
+    }
+
+    cur['身体信息'] = 身体;
+    cur['数值'] = 数值;
+    profiles[characterId] = cur;
+    next['角色档案'] = profiles;
+    bumpMetaInStat(next);
+    return next;
   });
 }
 
@@ -132,7 +236,7 @@ export async function submitEditCharacterBasic(
   if (typeof payload.lust === 'number') stats.lust = payload.lust;
   if (typeof payload.fetish === 'number') stats.fetish = payload.fetish;
 
-  const basic = {
+  const basic: CharacterData['basic'] = {
     age: payload.age as string | undefined,
     height: payload.height as string | undefined,
     weight: payload.weight as string | undefined,
@@ -145,7 +249,7 @@ export async function submitEditCharacterBasic(
     {
       name: (payload.name as string | undefined) ?? undefined,
       basic,
-      stats: Object.keys(stats).length ? (stats as any) : undefined,
+      stats: Object.keys(stats).length ? (stats as Record<string, number>) : undefined,
     } as Partial<CharacterData>,
   );
   return message;
@@ -200,10 +304,7 @@ export function updateCharacterPsychInChineseVariables(
     if (updates.隐藏性癖 != null) cur['隐藏性癖'] = updates.隐藏性癖;
     profiles[characterId] = cur;
     next['角色档案'] = profiles;
-    // 尽量同步元信息更新时间
-    if (next['元信息'] && typeof next['元信息'] === 'object') {
-      next['元信息'] = { ...next['元信息'], 最近更新时间: Date.now() };
-    }
+    bumpMetaInStat(next);
     return next;
   });
 }
@@ -247,37 +348,70 @@ export function formatWorldRuleMessage(type: 'add' | 'edit' | 'archive' | 'resto
 }
 
 export function addWorldRuleToVariables(title: string, desc: string): void {
-  const newRule: RuleData = {
-    id: `wr-${Date.now()}`,
-    title,
-    desc,
-    status: 'active',
-    category: 'world',
-  };
   updateStatData((stat) => {
-    const list = Array.isArray(stat.worldRules) ? [...stat.worldRules] : [];
-    list.push(newRule);
-    return { ...stat, worldRules: list };
+    const next = { ...stat } as Record<string, any>;
+    if (!next['世界规则'] || typeof next['世界规则'] !== 'object') next['世界规则'] = {};
+    next['世界规则'] = {
+      ...next['世界规则'],
+      [title]: { 效果描述: desc, 状态: '生效中', 标记: '世界级' },
+    };
+    bumpMetaInStat(next);
+    return next;
   });
 }
 
 export function updateWorldRuleInVariables(idOrTitle: string, updates: Partial<RuleData>): void {
   updateStatData((stat) => {
-    const list = Array.isArray(stat.worldRules) ? [...stat.worldRules] : [];
-    const idx = list.findIndex((r: any) => r?.id === idOrTitle || r?.title === idOrTitle);
-    if (idx >= 0) {
-      list[idx] = { ...list[idx], ...updates };
+    const next = { ...stat } as Record<string, any>;
+    const key = resolveWorldRuleKey(next, idOrTitle);
+    if (!key) return stat;
+    if (!next['世界规则'] || typeof next['世界规则'] !== 'object') return stat;
+    const wr = { ...next['世界规则'] };
+    const cur = { ...(wr[key] || {}) };
+    const newTitle = updates.title?.trim();
+    const nextKey = newTitle && newTitle.length > 0 && newTitle !== key ? newTitle : key;
+
+    const merged = {
+      ...cur,
+      效果描述: updates.desc != null ? updates.desc : cur['效果描述'] ?? '',
+      状态: enRuleStatusToZh(updates.status, cur['状态'] ?? '生效中'),
+      标记: cur['标记'] ?? '世界级',
+    };
+
+    if (nextKey !== key) {
+      delete wr[key];
     }
-    return { ...stat, worldRules: list };
+    wr[nextKey] = merged;
+    next['世界规则'] = wr;
+    bumpMetaInStat(next);
+    return next;
   });
 }
 
 export function archiveWorldRuleInVariables(idOrTitle: string): void {
-  updateWorldRuleInVariables(idOrTitle, { status: 'inactive' });
+  updateStatData((stat) => {
+    const next = { ...stat } as Record<string, any>;
+    const key = resolveWorldRuleKey(next, idOrTitle);
+    if (!key || !next['世界规则']?.[key]) return stat;
+    const wr = { ...next['世界规则'] };
+    wr[key] = { ...wr[key], 状态: '已归档' };
+    next['世界规则'] = wr;
+    bumpMetaInStat(next);
+    return next;
+  });
 }
 
 export function restoreWorldRuleInVariables(idOrTitle: string): void {
-  updateWorldRuleInVariables(idOrTitle, { status: 'active' });
+  updateStatData((stat) => {
+    const next = { ...stat } as Record<string, any>;
+    const key = resolveWorldRuleKey(next, idOrTitle);
+    if (!key || !next['世界规则']?.[key]) return stat;
+    const wr = { ...next['世界规则'] };
+    wr[key] = { ...wr[key], 状态: '生效中' };
+    next['世界规则'] = wr;
+    bumpMetaInStat(next);
+    return next;
+  });
 }
 
 export async function submitAddWorldRule(name: string, detail: string): Promise<string> {
@@ -326,80 +460,167 @@ export function formatRegionRuleMessage(type: 'add' | 'edit' | 'archive' | 'rest
 }
 
 export function addRegionToVariables(name: string, detail: string): void {
-  const newRegion: RegionData = {
-    id: `reg-${Date.now()}`,
-    name,
-    description: detail,
-    rules: [],
-    status: 'active',
-  };
   updateStatData((stat) => {
-    const list = Array.isArray(stat.regionalRules) ? [...stat.regionalRules] : [];
-    list.push(newRegion);
-    return { ...stat, regionalRules: list };
+    const next = { ...stat } as Record<string, any>;
+    if (!next['区域规则'] || typeof next['区域规则'] !== 'object') next['区域规则'] = {};
+    next['区域规则'] = {
+      ...next['区域规则'],
+      [name]: { 效果描述: detail, 状态: '生效中', 细分规则: {} },
+    };
+    bumpMetaInStat(next);
+    return next;
   });
 }
 
 export function updateRegionInVariables(idOrName: string, updates: Partial<RegionData>): void {
   updateStatData((stat) => {
-    const list = Array.isArray(stat.regionalRules) ? [...stat.regionalRules] : [];
-    const idx = list.findIndex((r: any) => r?.id === idOrName || r?.name === idOrName);
-    if (idx >= 0) {
-      list[idx] = { ...list[idx], ...updates };
+    const next = { ...stat } as Record<string, any>;
+    const rk = resolveRegionKey(next, idOrName);
+    if (!rk || !next['区域规则']?.[rk]) return stat;
+    const rr = { ...next['区域规则'] };
+    const cur = { ...(rr[rk] || {}) };
+    const newName = updates.name?.trim();
+    const nextKey = newName && newName.length > 0 && newName !== rk ? newName : rk;
+
+    const merged = {
+      ...cur,
+      效果描述: updates.description != null ? updates.description : cur['效果描述'] ?? '',
+      状态: enRuleStatusToZh(updates.status, cur['状态'] ?? '生效中'),
+      细分规则:
+        cur['细分规则'] && typeof cur['细分规则'] === 'object' ? { ...cur['细分规则'] } : {},
+    };
+
+    if (nextKey !== rk) {
+      delete rr[rk];
     }
-    return { ...stat, regionalRules: list };
+    rr[nextKey] = merged;
+    next['区域规则'] = rr;
+    bumpMetaInStat(next);
+    return next;
   });
 }
 
 export function archiveRegionInVariables(idOrName: string): void {
-  updateRegionInVariables(idOrName, { status: 'inactive' });
+  updateStatData((stat) => {
+    const next = { ...stat } as Record<string, any>;
+    const rk = resolveRegionKey(next, idOrName);
+    if (!rk || !next['区域规则']?.[rk]) return stat;
+    const rr = { ...next['区域规则'] };
+    rr[rk] = { ...rr[rk], 状态: '已归档' };
+    next['区域规则'] = rr;
+    bumpMetaInStat(next);
+    return next;
+  });
 }
 
 export function restoreRegionInVariables(idOrName: string): void {
-  updateRegionInVariables(idOrName, { status: 'active' });
+  updateStatData((stat) => {
+    const next = { ...stat } as Record<string, any>;
+    const rk = resolveRegionKey(next, idOrName);
+    if (!rk || !next['区域规则']?.[rk]) return stat;
+    const rr = { ...next['区域规则'] };
+    rr[rk] = { ...rr[rk], 状态: '生效中' };
+    next['区域规则'] = rr;
+    bumpMetaInStat(next);
+    return next;
+  });
 }
 
 /** 更新区域内单条规则的状态（归档/复原等） */
 export function updateRegionalRuleInVariables(regionIdOrName: string, ruleIdOrTitle: string, updates: Partial<RuleData>): void {
   updateStatData((stat) => {
-    const list = Array.isArray(stat.regionalRules) ? [...stat.regionalRules] : [];
-    const rIdx = list.findIndex((r: any) => r?.id === regionIdOrName || r?.name === regionIdOrName);
-    if (rIdx < 0) return stat;
-    const region = list[rIdx];
-    const rules = Array.isArray(region.rules) ? [...region.rules] : [];
-    const ruleIdx = rules.findIndex((r: any) => r?.id === ruleIdOrTitle || r?.title === ruleIdOrTitle);
-    if (ruleIdx < 0) return stat;
-    rules[ruleIdx] = { ...rules[ruleIdx], ...updates };
-    list[rIdx] = { ...region, rules };
-    return { ...stat, regionalRules: list };
+    const next = { ...stat } as Record<string, any>;
+    const rk = resolveRegionKey(next, regionIdOrName);
+    if (!rk || !next['区域规则']?.[rk]) return stat;
+    const rr = { ...next['区域规则'] };
+    const regionEntry = { ...(rr[rk] || {}) };
+    const 细分 = {
+      ...(regionEntry['细分规则'] && typeof regionEntry['细分规则'] === 'object' ? regionEntry['细分规则'] : {}),
+    };
+    const subKey = resolveRegionalSubRuleKey(细分, rk, ruleIdOrTitle);
+    if (!subKey || !细分[subKey]) return stat;
+    const sub = { ...(细分[subKey] || {}) };
+    if (updates.title != null && updates.title !== subKey) {
+      delete 细分[subKey];
+      细分[updates.title] = {
+        ...sub,
+        描述: updates.desc != null ? updates.desc : sub['描述'] ?? '',
+        状态: enRuleStatusToZh(updates.status, sub['状态'] ?? '生效中'),
+      };
+    } else {
+      细分[subKey] = {
+        ...sub,
+        ...(updates.desc != null ? { 描述: updates.desc } : {}),
+        状态: enRuleStatusToZh(updates.status, sub['状态'] ?? '生效中'),
+      };
+    }
+    regionEntry['细分规则'] = 细分;
+    rr[rk] = regionEntry;
+    next['区域规则'] = rr;
+    bumpMetaInStat(next);
+    return next;
   });
 }
 
 export function archiveRegionalRuleInVariables(regionIdOrName: string, ruleIdOrTitle: string): void {
-  updateRegionalRuleInVariables(regionIdOrName, ruleIdOrTitle, { status: 'inactive' });
+  updateStatData((stat) => {
+    const next = { ...stat } as Record<string, any>;
+    const rk = resolveRegionKey(next, regionIdOrName);
+    if (!rk || !next['区域规则']?.[rk]) return stat;
+    const rr = { ...next['区域规则'] };
+    const regionEntry = { ...(rr[rk] || {}) };
+    const 细分 = {
+      ...(regionEntry['细分规则'] && typeof regionEntry['细分规则'] === 'object' ? regionEntry['细分规则'] : {}),
+    };
+    const subKey = resolveRegionalSubRuleKey(细分, rk, ruleIdOrTitle);
+    if (!subKey || !细分[subKey]) return stat;
+    细分[subKey] = { ...细分[subKey], 状态: '已归档' };
+    regionEntry['细分规则'] = 细分;
+    rr[rk] = regionEntry;
+    next['区域规则'] = rr;
+    bumpMetaInStat(next);
+    return next;
+  });
 }
 
 export function restoreRegionalRuleInVariables(regionIdOrName: string, ruleIdOrTitle: string): void {
-  updateRegionalRuleInVariables(regionIdOrName, ruleIdOrTitle, { status: 'active' });
+  updateStatData((stat) => {
+    const next = { ...stat } as Record<string, any>;
+    const rk = resolveRegionKey(next, regionIdOrName);
+    if (!rk || !next['区域规则']?.[rk]) return stat;
+    const rr = { ...next['区域规则'] };
+    const regionEntry = { ...(rr[rk] || {}) };
+    const 细分 = {
+      ...(regionEntry['细分规则'] && typeof regionEntry['细分规则'] === 'object' ? regionEntry['细分规则'] : {}),
+    };
+    const subKey = resolveRegionalSubRuleKey(细分, rk, ruleIdOrTitle);
+    if (!subKey || !细分[subKey]) return stat;
+    细分[subKey] = { ...细分[subKey], 状态: '生效中' };
+    regionEntry['细分规则'] = 细分;
+    rr[rk] = regionEntry;
+    next['区域规则'] = rr;
+    bumpMetaInStat(next);
+    return next;
+  });
 }
 
 /** 新增区域内单条规则 */
 export function addRegionalRuleToVariables(regionIdOrName: string, title: string, desc: string): void {
   updateStatData((stat) => {
-    const list = Array.isArray(stat.regionalRules) ? [...stat.regionalRules] : [];
-    const rIdx = list.findIndex((r: any) => r?.id === regionIdOrName || r?.name === regionIdOrName);
-    if (rIdx < 0) return stat;
-    const region = list[rIdx];
-    const rules = Array.isArray(region.rules) ? [...region.rules] : [];
-    rules.push({
-      id: `rr-${Date.now()}`,
-      title,
-      desc,
-      status: 'active',
-      category: 'regional',
-    } as RuleData);
-    list[rIdx] = { ...region, rules };
-    return { ...stat, regionalRules: list };
+    const next = { ...stat } as Record<string, any>;
+    const rk = resolveRegionKey(next, regionIdOrName);
+    if (!rk || !next['区域规则']?.[rk]) return stat;
+    const rr = { ...next['区域规则'] };
+    const regionEntry = { ...(rr[rk] || {}) };
+    const 细分 = {
+      ...(regionEntry['细分规则'] && typeof regionEntry['细分规则'] === 'object' ? regionEntry['细分规则'] : {}),
+    };
+    细分[title] = { 描述: desc, 状态: '生效中' };
+    regionEntry['细分规则'] = 细分;
+    rr[rk] = regionEntry;
+    next['区域规则'] = rr;
+    bumpMetaInStat(next);
+    return next;
   });
 }
 
@@ -409,7 +630,10 @@ export function editRegionalRuleInVariables(
   ruleIdOrTitle: string,
   updates: { title?: string; desc?: string },
 ): void {
-  updateRegionalRuleInVariables(regionIdOrName, ruleIdOrTitle, updates as Partial<RuleData>);
+  updateRegionalRuleInVariables(regionIdOrName, ruleIdOrTitle, {
+    title: updates.title,
+    desc: updates.desc,
+  } as Partial<RuleData>);
 }
 
 export async function submitAddRegion(name: string, detail: string): Promise<string> {
@@ -504,37 +728,76 @@ export function formatPersonalRuleMessage(type: 'add' | 'edit' | 'archive' | 're
 }
 
 export function addPersonalRuleToVariables(characterName: string, detail: string): void {
-  const newRule: RuleData = {
-    id: `pr-${Date.now()}`,
-    title: characterName,
-    desc: detail,
-    status: 'active',
-    category: 'personal',
-  };
+  const key = `PR-${Date.now()}`;
+  const c = characterName.trim();
   updateStatData((stat) => {
-    const list = Array.isArray(stat.personalRules) ? [...stat.personalRules] : [];
-    list.push(newRule);
-    return { ...stat, personalRules: list };
+    const next = { ...stat } as Record<string, any>;
+    if (!next['个人规则'] || typeof next['个人规则'] !== 'object') next['个人规则'] = {};
+    next['个人规则'] = {
+      ...next['个人规则'],
+      [key]: {
+        名称: c,
+        适用对象: c,
+        效果描述: detail.trim(),
+        状态: '生效中',
+        标记: '个人级',
+      },
+    };
+    bumpMetaInStat(next);
+    return next;
   });
 }
 
 export function updatePersonalRuleInVariables(idOrTitle: string, updates: Partial<RuleData>): void {
   updateStatData((stat) => {
-    const list = Array.isArray(stat.personalRules) ? [...stat.personalRules] : [];
-    const idx = list.findIndex((r: any) => r?.id === idOrTitle || r?.title === idOrTitle);
-    if (idx >= 0) {
-      list[idx] = { ...list[idx], ...updates };
+    const next = { ...stat } as Record<string, any>;
+    const pk = resolvePersonalRuleKey(next, idOrTitle);
+    if (!pk || !next['个人规则']?.[pk]) return stat;
+    const pr = { ...next['个人规则'] };
+    const cur = { ...(pr[pk] || {}) };
+    const merged: Record<string, any> = {
+      ...cur,
+      效果描述: updates.desc != null ? updates.desc : cur['效果描述'] ?? '',
+      状态: enRuleStatusToZh(updates.status, cur['状态'] ?? '生效中'),
+      标记: cur['标记'] ?? '个人级',
+    };
+    if (updates.title != null) {
+      merged['名称'] = updates.title;
+      merged['适用对象'] = updates.title;
+    } else if (merged['名称'] == null && merged['适用对象'] != null) {
+      merged['名称'] = merged['适用对象'];
     }
-    return { ...stat, personalRules: list };
+    pr[pk] = merged;
+    next['个人规则'] = pr;
+    bumpMetaInStat(next);
+    return next;
   });
 }
 
 export function archivePersonalRuleInVariables(idOrTitle: string): void {
-  updatePersonalRuleInVariables(idOrTitle, { status: 'inactive' });
+  updateStatData((stat) => {
+    const next = { ...stat } as Record<string, any>;
+    const pk = resolvePersonalRuleKey(next, idOrTitle);
+    if (!pk || !next['个人规则']?.[pk]) return stat;
+    const pr = { ...next['个人规则'] };
+    pr[pk] = { ...pr[pk], 状态: '已归档' };
+    next['个人规则'] = pr;
+    bumpMetaInStat(next);
+    return next;
+  });
 }
 
 export function restorePersonalRuleInVariables(idOrTitle: string): void {
-  updatePersonalRuleInVariables(idOrTitle, { status: 'active' });
+  updateStatData((stat) => {
+    const next = { ...stat } as Record<string, any>;
+    const pk = resolvePersonalRuleKey(next, idOrTitle);
+    if (!pk || !next['个人规则']?.[pk]) return stat;
+    const pr = { ...next['个人规则'] };
+    pr[pk] = { ...pr[pk], 状态: '生效中' };
+    next['个人规则'] = pr;
+    bumpMetaInStat(next);
+    return next;
+  });
 }
 
 export async function submitAddPersonalRule(characterName: string, detail: string): Promise<string> {

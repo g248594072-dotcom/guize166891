@@ -109,10 +109,31 @@
           <button class="header-btn" @click="refreshMessage" title="刷新内容">
             <i class="fa-solid fa-rotate-right"></i>
           </button>
+          <button
+            v-if="!mainText && !isGenerating && !isRegenerating"
+            class="header-btn header-btn-recover"
+            type="button"
+            title="正文为空时：撤回最后一条用户发言并填入酒馆输入框"
+            @click="onRecoverLastUserMessage"
+          >
+            <i class="fa-solid fa-arrow-rotate-left"></i>
+          </button>
           <button class="header-btn" @click="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏'">
             <i :class="isFullscreen ? 'fa-solid fa-compress' : 'fa-solid fa-expand'"></i>
           </button>
         </div>
+      </div>
+
+      <!-- 标签确认后写入楼层 / 同步变量时：顶部轻提示，不遮挡正文 -->
+      <div
+        v-if="isVariablePersistInProgress"
+        class="variable-persist-banner"
+        :class="{ dark: isDarkMode, light: !isDarkMode }"
+        role="status"
+        aria-live="polite"
+      >
+        <i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i>
+        <span>正在将本回合写入楼层并同步变量（必要时含额外模型解析），请稍候；暂勿发送新内容。</span>
       </div>
 
       <div class="game-content">
@@ -139,7 +160,8 @@
                 @mousedown="onMaintextMouseDown"
                 @mouseup="onMaintextLongPressEnd"
                 @mouseleave="onMaintextLongPressEnd"
-                @touchstart.prevent="onMaintextTouchStart"
+                @touchstart="onMaintextTouchStart"
+                @touchmove="onMaintextTouchMove"
                 @touchend="onMaintextLongPressEnd"
                 @touchcancel="onMaintextLongPressEnd"
                 @contextmenu.prevent
@@ -165,6 +187,7 @@
                     v-for="option in options"
                     :key="option.id"
                     class="option-btn"
+                    :disabled="isGenerating || isVariablePersistInProgress"
                     @click="selectOption(option.id)"
                   >
                     <span class="option-id">{{ option.id }}</span>
@@ -243,14 +266,14 @@
             id="llm-input"
             v-model="userInput"
             placeholder="输入指令或描述..."
-            rows="4"
-            :disabled="isGenerating"
+            rows="1"
+            :disabled="isGenerating || isVariablePersistInProgress"
             @keydown.enter.prevent="sendMessage"
           />
           <button
             id="btn-send-llm"
             class="send-btn"
-            :disabled="isGenerating || !userInput.trim()"
+            :disabled="isGenerating || isVariablePersistInProgress || !userInput.trim()"
             @click="sendMessage"
           >
             <i v-if="isGenerating" class="fa-solid fa-circle-notch fa-spin"></i>
@@ -467,7 +490,7 @@
         <button
           type="button"
           class="context-menu-item"
-          :disabled="isGenerating"
+          :disabled="isGenerating || isVariablePersistInProgress"
           @click="handleRegenerate"
         >
           {{ isGenerating ? '⏳ 处理中...' : '🔄 重roll' }}
@@ -475,7 +498,7 @@
         <button
           type="button"
           class="context-menu-item"
-          :disabled="isGenerating"
+          :disabled="isGenerating || isVariablePersistInProgress"
           @click="handleRegenerateVariablesOnly"
         >
           {{ isGenerating ? '⏳ 处理中...' : '🎲 单独重roll变量' }}
@@ -483,7 +506,7 @@
         <button
           type="button"
           class="context-menu-item"
-          :disabled="isGenerating"
+          :disabled="isGenerating || isVariablePersistInProgress"
           @click="handleEdit"
         >
           ✏️ 修改正文
@@ -543,7 +566,7 @@
                 v-model="variableRerollPatchText"
                 class="edit-maintext-textarea"
                 rows="16"
-                placeholder='例如：[{ "op": "replace", "path": "/游戏状态/回合数", "value": 5 }]'
+                placeholder='例如：[{ "op": "replace", "path": "/元信息/进度", "value": 5 }]'
               />
               <div class="edit-maintext-actions">
                 <button type="button" class="btn-secondary" @click="closeVariableRerollDialog">取消</button>
@@ -620,24 +643,47 @@
             <div class="tag-validation-content">
               <p class="validation-intro">AI 输出标签检核结果：</p>
 
+              <div class="ai-output-time" v-if="lastGenerationDurationLabel">
+                本次生成耗时：{{ lastGenerationDurationLabel }}
+              </div>
+
+              <div class="validation-duplicate-hint" v-if="tagCheckHasDuplicateOpenWarning(tagCheckResults)">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+                <span>开合标签多出一个开标签时，多为预设或前文格式说明里重复写了与输出同形的标签；已按<strong>最后一对</strong>闭合标签解析，一般不影响正常使用。</span>
+              </div>
+
               <div class="tag-status-list">
                 <div
                   v-for="result in tagCheckResults"
                   :key="result.tag"
                   class="tag-status-item"
-                  :class="{ 'is-valid': result.isValid, 'is-invalid': !result.isValid }"
+                  :class="{
+                    'is-valid': result.severity === 'ok',
+                    'is-warning': result.severity === 'warning',
+                    'is-invalid': result.severity === 'error',
+                  }"
                 >
                   <div class="tag-status-header">
-                    <span class="tag-name">&lt;{{ result.tag }}&gt;</span>
-                    <span class="tag-badge" :class="{ 'badge-success': result.isValid, 'badge-error': !result.isValid }">
-                      {{ result.isValid ? '✓ 正常' : '✗ 异常' }}
+                    <span class="tag-name">
+                      {{ tagCheckLabel(result.tag) }}
+                      <span class="tag-name-code">&lt;{{ result.tag }}&gt;</span>
+                    </span>
+                    <span
+                      class="tag-badge"
+                      :class="{
+                        'badge-success': result.severity === 'ok',
+                        'badge-warning': result.severity === 'warning',
+                        'badge-error': result.severity === 'error',
+                      }"
+                    >
+                      {{ tagCheckBadgeLabel(result) }}
                     </span>
                   </div>
-                  <p class="tag-message">{{ result.message }}</p>
+                  <p class="tag-message" :title="result.message">{{ result.message }}</p>
                 </div>
               </div>
 
-              <div class="validation-warning" v-if="tagCheckResults.some(r => !r.isValid && r.tag !== 'sum')">
+              <div class="validation-warning" v-if="tagCheckHasBlockingInvalid(tagCheckResults)">
                 <i class="fa-solid fa-circle-exclamation"></i>
                 <span>存在格式错误的消息可能无法正常显示。建议回退后重试。</span>
               </div>
@@ -662,10 +708,44 @@
               <i class="fa-solid fa-rotate-left"></i>
               回退到发送前
             </button>
-            <button class="btn-primary btn-continue" @click="onTagDialogConfirmClick">
+            <button class="btn-primary btn-continue" @click="void onTagDialogIgnore()">
               <i class="fa-solid fa-check"></i>
-              {{ tagCheckResults.some(r => !r.isValid && r.tag !== 'sum') ? '无视错误确认' : '确认信息' }}
+              {{ tagCheckHasBlockingInvalid(tagCheckResults) ? '无视错误确认' : '确认信息' }}
             </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- 末尾为玩家楼层检测（重载/异常时便于删楼重生成） -->
+    <Transition name="modal">
+      <div
+        v-if="orphanUserFloorDialogOpen"
+        class="modal-overlay orphan-user-floor-overlay"
+        :class="{ dark: isDarkMode, light: !isDarkMode }"
+        @click.self="dismissOrphanUserFloorDialog"
+      >
+        <div class="modal-content orphan-user-floor-modal" :class="{ dark: isDarkMode, light: !isDarkMode }">
+          <div class="modal-header">
+            <h2><i class="fa-solid fa-triangle-exclamation" style="color: #f59e0b;"></i> 末尾楼层为玩家发言</h2>
+            <button type="button" class="close-btn" @click="dismissOrphanUserFloorDialog">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+          <div class="modal-body">
+            <p class="orphan-user-floor-intro">
+              检测到聊天<strong>最后一楼可见消息</strong>不是 AI 回复（玩家消息）。常见于界面异常、重载后未接上生成等情况。
+            </p>
+            <p v-if="orphanUserFloorMessageId != null" class="orphan-user-floor-meta">
+              将删除楼层：<code>#{{ orphanUserFloorMessageId }}</code>
+            </p>
+            <p class="orphan-user-floor-hint">
+              确认后将删除该条玩家发言并刷新正文；请在<strong>酒馆中点击继续生成</strong>（或使用本界面输入后发送）以重新获取 AI 回复。
+            </p>
+          </div>
+          <div class="modal-footer orphan-user-floor-footer">
+            <button type="button" class="btn-secondary" @click="dismissOrphanUserFloorDialog">暂不处理</button>
+            <button type="button" class="btn-primary" @click="confirmOrphanUserFloorDelete">确认删除</button>
           </div>
         </div>
       </div>
@@ -688,6 +768,7 @@ import {
   validateTags,
   isFilteringComplete,
   extractFilteredContent,
+  extractLastSumContent,
   type Option,
   type TagCheckResult
 } from './utils/messageParser';
@@ -697,13 +778,15 @@ import {
   createOpeningStoryMessage,
   isNewGame,
 } from './utils/gameInitializer';
-import { updateWorldbookEntriesByMode } from './utils/apiSettings';
+import { updateWorldbookEntriesByMode, isSecondaryApiConfigured } from './utils/apiSettings';
 import { startIframeHeightFix } from './utils/iframeHeightFix';
 
 // 游戏阶段管理
 const gamePhase = ref<GamePhase>(GamePhase.OPENING);
 const isInitializing = ref(false);
 const isGeneratingOpening = ref(false); // 开场白生成中（显示加载弹窗）
+/** 标签确认后：写入楼层、MVU 解析、开局第二 API 等进行中；不挡正文，仅顶栏提示并禁止发送 */
+const isVariablePersistInProgress = ref(false);
 const isOpeningPhase = ref(false); // 标志当前是否处于开局流程（用于标签弹窗区分）
 const openingFormKey = ref(0); // 强制重置 OpeningForm（用于回退/失败后取消“开始游戏”转圈）
 
@@ -717,52 +800,12 @@ const modalType = ref('');
 const modalPayload = ref<Record<string, any> | null>(null);
 const isDarkMode = ref(true);
 
-/**
- * 立刻请求全屏（必须在用户点击回调内触发，不能先 await）
- * 用于开局“确认信息”按钮，避免异步流程导致手势上下文丢失。
- */
-function requestFullscreenNow(): void {
-  try {
-    if (document.fullscreenElement) return;
-    const docEl = document.documentElement as any;
-    if (docEl?.requestFullscreen) {
-      // 不要 await，确保仍处于用户手势上下文
-      docEl.requestFullscreen().catch?.(() => {});
-      return;
-    }
-  } catch (e) {
-    // 忽略，继续走降级方案
-  }
-
-  // 降级：尝试对父窗口中本 iframe 进入全屏
-  try {
-    if (window.parent && window.parent !== window) {
-      const parentDoc = window.parent.document;
-      const iframe = parentDoc.querySelector('iframe#' + getIframeName()) as any;
-      if (iframe?.requestFullscreen && !parentDoc.fullscreenElement) {
-        iframe.requestFullscreen().catch?.(() => {});
-      }
-    }
-  } catch (e) {
-    // 忽略
-  }
-}
-
-function onTagDialogConfirmClick(): void {
-  // 方案 A：点击“确认信息”当下立刻尝试全屏（只在开局流程强制）
-  if (isOpeningPhase.value) {
-    requestFullscreenNow();
-  }
-  // 继续原来的确认流程（不要 await，避免影响全屏手势）
-  void onTagDialogIgnore();
-}
-
 // 布局/缩放设置（来自系统设置）
 const uiLayout = ref({
-  scale: 1,
-  maxWidth: 1400,
+  scale: 0.8,
+  maxWidth: 900,
   heightMode: 'fit' as 'fit' | 'custom',
-  maxHeight: 850,
+  maxHeight: 400,
 });
 
 const rootStyle = computed(() => {
@@ -772,7 +815,7 @@ const rootStyle = computed(() => {
   const isFS = isFullscreen.value;
   const maxWidth = isFS
     ? '100vw' // 全屏时占满视口宽度
-    : `${Math.round(Number(uiLayout.value.maxWidth) || 1400)}px`;
+    : `${Math.round(Number(uiLayout.value.maxWidth) || 900)}px`;
 
   const maxHeight = isFS
     ? '100vh' // 全屏时占满视口高度
@@ -807,6 +850,8 @@ const modalForm = ref({
 const userInput = ref('');
 const isGenerating = ref(false);
 const isRegenerating = ref(false); // 重 roll 中，用于显示「正在重ROLL请稍等」遮罩与正文虚化
+/** 长按重 ROLL 生成完成后：在标签弹窗「确认」写入楼层后强制刷新一次（避免 messageId 未变导致 loadMessageContent 跳过） */
+const refreshFromRerollAfterTagConfirm = ref(false);
 const streamTextBuffer = ref('');
 
 // 游戏消息相关状态
@@ -820,21 +865,29 @@ const viewMode = ref<'normal' | 'reader' | 'save'>('normal'); // 正常 | 阅读
 const isFullscreen = ref(false); // 是否全屏
 
 // 阅读模式数据
-const maintextHistory = ref<Array<{ messageId: number; maintext: string; timestamp?: string }>>([]);
+const maintextHistory = ref<Array<{ messageId: number; maintext: string; turnNumber?: number; timestamp?: string }>>([]);
 
 // 读档模式数据
-const saveHistory = ref<Array<{ messageId: number; sum: string; timestamp?: string }>>([]);
+const saveHistory = ref<Array<{ messageId: number; sum: string; turnNumber?: number; timestamp?: string }>>([]);
 
 // 标签验证弹窗状态
 const isTagDialogOpen = ref(false);
 const tagCheckResults = ref<TagCheckResult[]>([]);
 const lastGenerationRaw = ref('');
+const lastGenerationDurationLabel = ref('');
+/** 本次 AI 请求开始时刻（含主 generate + 双 API 第二段），用于弹窗显示耗时 */
+const aiGenerationStartMs = ref(0);
 const lastUserInputSnapshot = ref('');
 const lastMaintextSnapshot = ref('');
 const lastOptionsSnapshot = ref<Option[]>([]);
 const lastMessageIdSnapshot = ref<number | undefined>(undefined);
 const pendingUserMessageId = ref<number | null>(null);
 const showAiOutput = ref(false); // 是否展开显示AI完整输出
+
+/** 末尾为玩家楼层：弹窗与本次会话内「已忽略」的 message_id */
+const orphanUserFloorDialogOpen = ref(false);
+const orphanUserFloorMessageId = ref<number | null>(null);
+const orphanUserFloorDismissedMid = ref<number | null>(null);
 
 // 长按正文：上下文菜单与编辑
 const contextMenu = ref<{ x: number; y: number } | null>(null);
@@ -849,6 +902,7 @@ const currentMessageInfo = ref<{
   fullMessage?: string;
 }>({});
 const longPressTimerRef = ref<ReturnType<typeof setTimeout> | null>(null);
+const maintextTouchStartPos = ref<{ x: number; y: number } | null>(null);
 
 // 单独重roll变量：预览/编辑与待提交数据
 const variableRerollDialogOpen = ref(false);
@@ -886,6 +940,48 @@ watch(
 // 输出模式变更处理
 function onOutputModeChange(mode: OutputMode) {
   console.log(`🔄 [App] 输出模式变更为: ${mode}`);
+}
+
+const TAG_CHECK_LABELS: Record<string, string> = {
+  thinking: '思考',
+  maintext: '正文',
+  option: '选项',
+  sum: '摘要',
+  UpdateVariable: '变量',
+};
+
+function tagCheckLabel(tag: string): string {
+  return TAG_CHECK_LABELS[tag] ?? tag;
+}
+
+/** 仅 severity 为 error 的正文/思考/选项算阻塞；存疑（warning）不阻塞 */
+function tagCheckHasBlockingInvalid(results: TagCheckResult[]): boolean {
+  return results.some(
+    (r) =>
+      r.severity === 'error' &&
+      r.tag !== 'sum' &&
+      r.tag !== 'UpdateVariable',
+  );
+}
+
+function tagCheckHasDuplicateOpenWarning(results: TagCheckResult[]): boolean {
+  return results.some((r) => r.severity === 'warning');
+}
+
+function tagCheckBadgeLabel(result: TagCheckResult): string {
+  if (result.severity === 'ok') return '✓ 正常';
+  if (result.severity === 'warning') return '⚠ 存疑';
+  return '✗ 异常';
+}
+
+function formatGenerationDurationMs(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return '—';
+  if (ms < 1000) return '不足 1 秒';
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)} 秒`;
+  const s = Math.floor(ms / 1000);
+  const m = Math.floor(s / 60);
+  const rs = s % 60;
+  return `${m} 分 ${String(rs).padStart(2, '0')} 秒`;
 }
 
 function onLayoutChange(layout: { scale: number; maxWidth: number; heightMode: 'fit' | 'custom'; maxHeight: number }) {
@@ -975,13 +1071,6 @@ const modalTitles: Record<string, string> = {
   edit_character_fetish: '编辑性癖与敏感带',
 };
 const modalTitle = computed(() => modalTitles[modalType.value] || (modalType.value.includes('add') ? '新增条目' : '编辑条目'));
-
-const logEntries = [
-  { type: 'system', time: '10:42:01', content: '世界规则 <span class="highlight">「猫娘语癖」</span> 已生效。所有女性角色的对话输出将自动附加后缀。' },
-  { type: 'event', time: '10:45:22', content: '神宫寺 琉璃 进入了 <span class="highlight">「圣华女子高级中学」</span> 区域。区域规则已覆盖。' },
-  { type: 'user', time: '10:46:00', content: '让琉璃去上厕所。' },
-  { type: 'llm', time: '10:46:15', content: '琉璃红着脸，双腿微微夹紧。她想起了这里的规则，咬了咬下唇，屈辱地举起手："老、老师...我...我是不能憋住尿的废物小穴...请允许我去洗手间...喵..."<br><br><span class="subtext">（心理状态更新：羞耻度上升，顺从度微弱上升）</span>' },
-];
 
 // 防抖：防止短时间内重复点击
 let lastClickTime = 0;
@@ -1200,12 +1289,147 @@ function loadMessageContent() {
 function refreshMessage() {
   currentMessageId.value = undefined; // 重置 ID 强制刷新
   loadMessageContent();
+  maybeOfferOrphanUserFloorFix();
+}
+
+/**
+ * 若最后一楼可见消息为玩家发言，则视为异常末端（便于重载后修复）
+ */
+function getOrphanUserLatestFloor(): { messageId: number } | null {
+  try {
+    if (typeof getChatMessages !== 'function' || typeof getLastMessageId !== 'function') return null;
+    const lastId = getLastMessageId();
+    if (lastId < 1) return null;
+    const list = getChatMessages(-1, { hide_state: 'unhidden' });
+    const latest = list[0];
+    if (!latest || latest.role !== 'user') return null;
+    if (latest.message_id < 1) return null;
+    return { messageId: latest.message_id };
+  } catch (e) {
+    console.warn('⚠️ [App] 检测末尾玩家楼层失败:', e);
+    return null;
+  }
+}
+
+function maybeOfferOrphanUserFloorFix() {
+  if (gamePhase.value !== GamePhase.GAME) return;
+  if (
+    isGenerating.value ||
+    isRegenerating.value ||
+    isGeneratingOpening.value ||
+    isInitializing.value ||
+    isVariablePersistInProgress.value
+  ) {
+    return;
+  }
+  if (
+    isTagDialogOpen.value ||
+    isModalOpen.value ||
+    variableRerollDialogOpen.value ||
+    variableUpdateDialogOpen.value ||
+    editingMessage.value
+  ) {
+    return;
+  }
+  if (contextMenu.value || orphanUserFloorDialogOpen.value) return;
+
+  const info = getOrphanUserLatestFloor();
+  if (!info) return;
+  if (orphanUserFloorDismissedMid.value === info.messageId) return;
+
+  orphanUserFloorMessageId.value = info.messageId;
+  orphanUserFloorDialogOpen.value = true;
+  console.info('📋 [App] 已提示：末尾楼层为玩家发言 #', info.messageId);
+}
+
+function dismissOrphanUserFloorDialog() {
+  if (orphanUserFloorMessageId.value != null) {
+    orphanUserFloorDismissedMid.value = orphanUserFloorMessageId.value;
+  }
+  orphanUserFloorDialogOpen.value = false;
+}
+
+async function confirmOrphanUserFloorDelete() {
+  const mid = orphanUserFloorMessageId.value;
+  if (mid == null) {
+    orphanUserFloorDialogOpen.value = false;
+    return;
+  }
+  if (typeof deleteChatMessages !== 'function') {
+    toastr.error('deleteChatMessages 不可用');
+    return;
+  }
+  try {
+    await deleteChatMessages([mid], { refresh: 'affected' });
+    orphanUserFloorDismissedMid.value = null;
+    orphanUserFloorDialogOpen.value = false;
+    orphanUserFloorMessageId.value = null;
+    currentMessageId.value = undefined;
+    loadMessageContent();
+    toastr.success('已删除该玩家楼层；请在酒馆中继续生成以获取 AI 回复');
+  } catch (e) {
+    console.error('❌ [App] 删除末尾玩家楼层失败:', e);
+    toastr.error('删除失败: ' + String(e));
+  }
+}
+
+/**
+ * 正文为空时：删除最后一条用户发言，将其内容写入酒馆对话框（供重新发送）
+ */
+async function onRecoverLastUserMessage() {
+  const ok = window.confirm(
+    '这将删除最后一次的用户发言并且把用户发言放置到对话框内，是否执行。',
+  );
+  if (!ok) return;
+
+  try {
+    if (typeof getLastMessageId !== 'function' || typeof getChatMessages !== 'function') {
+      toastr.error('当前环境无法访问聊天消息接口');
+      return;
+    }
+    const lastId = getLastMessageId();
+    if (lastId < 1) {
+      toastr.warning('没有可恢复的用户发言');
+      return;
+    }
+
+    const range = `0-${lastId}`;
+    const users = getChatMessages(range, { role: 'user', hide_state: 'unhidden' });
+    if (!users.length) {
+      toastr.warning('没有可恢复的用户发言');
+      return;
+    }
+
+    const lastUser = users[users.length - 1]!;
+    const text = String(lastUser.message ?? '').trim();
+    if (!text) {
+      toastr.warning('最后一条用户发言为空');
+      return;
+    }
+
+    const mid = lastUser.message_id;
+    if (typeof deleteChatMessages !== 'function') {
+      toastr.error('deleteChatMessages 不可用');
+      return;
+    }
+    await deleteChatMessages([mid], { refresh: 'affected' });
+
+    const { sendToDialog } = await import('./utils/dialogAndVariable');
+    await sendToDialog(text);
+
+    currentMessageId.value = undefined;
+    loadMessageContent();
+    toastr.success('已删除该条用户发言，内容已填入对话框');
+  } catch (e) {
+    console.error('❌ [App] 恢复用户发言失败:', e);
+    toastr.error('操作失败: ' + String(e));
+  }
 }
 
 // 发送消息（同层前端界面核心功能）
 async function sendMessage() {
   const content = userInput.value.trim();
-  if (!content || isGenerating.value) return;
+  if (!content || isGenerating.value || isVariablePersistInProgress.value) return;
 
   console.log('🎮 [App] 发送消息:', content.substring(0, 50) + '...');
 
@@ -1221,9 +1445,8 @@ async function sendMessage() {
   mainText.value = '';
   options.value = [];
 
-  let unsubscribeStream: (() => void) | null = null;
+  let unsubscribeStream: any = null;
   let streamSubscriptionSuccess = false;
-  let hasReceivedStream = false;
   let isThinkingComplete = false; // 标记是否已完成 thinking 标签的过滤
 
   // 检测当前输出模式
@@ -1251,7 +1474,6 @@ async function sendMessage() {
       // 监听流式传输事件
       if (iframe_events.STREAM_TOKEN_RECEIVED_FULLY) {
         const streamHandler = (text: string) => {
-          hasReceivedStream = true;
           streamTextBuffer.value = text;
 
           // 过滤机制：检查是否所有过滤标签都已闭合
@@ -1315,6 +1537,7 @@ async function sendMessage() {
 
     // 调用 generate 生成 AI 回复
     console.log('⏳ [App] 调用 generate...');
+    aiGenerationStartMs.value = Date.now();
     let result = await generate({
       user_input: content,
       should_stream: true,
@@ -1325,7 +1548,7 @@ async function sendMessage() {
     if (isDualMode && result) {
       try {
         const { processWithSecondaryApi } = await import('./utils/apiSettings');
-        if (secondaryApiConfig && secondaryApiConfig.url) {
+        if (isSecondaryApiConfigured(secondaryApiConfig)) {
           console.log('🔄 [App] 双API模式：调用第二API处理变量...');
 
           // 提取 maintext 内容
@@ -1354,7 +1577,7 @@ async function sendMessage() {
     // 清理流式监听（确保即使 generate 失败也能清理）
     if (streamSubscriptionSuccess && unsubscribeStream) {
       try {
-        unsubscribeStream();
+        unsubscribeStream?.();
         console.log('✅ [App] 流式事件监听已清理');
       } catch (err) {
         console.error('❌ [App] 清理流式事件监听失败:', err);
@@ -1391,7 +1614,7 @@ async function sendMessage() {
     // 清理流式监听
     if (unsubscribeStream) {
       try {
-        unsubscribeStream();
+        unsubscribeStream?.();
       } catch (e) {
         // 忽略
       }
@@ -1413,6 +1636,7 @@ async function sendMessage() {
 async function selectOption(optionId: string) {
   const option = options.value.find(o => o.id === optionId);
   if (!option) return;
+  if (isVariablePersistInProgress.value) return;
 
   console.log('📝 [App] 选择选项:', optionId, option.text);
 
@@ -1511,14 +1735,17 @@ function onMaintextLongPressStart(e: MouseEvent | TouchEvent) {
     contextMenu.value ||
     !mainText.value ||
     !hasValidMessageId() ||
-    isGenerating.value
+    isGenerating.value ||
+    isVariablePersistInProgress.value
   ) {
     console.log('[长按] 条件不满足，取消', { contextMenu: contextMenu.value, mainText: mainText.value, hasValidId: hasValidMessageId(), isGenerating: isGenerating.value });
     return;
   }
 
-  // 阻止默认行为（文本选择、上下文菜单等）
-  if (e.cancelable) {
+  // 桌面端：阻止文本选择/上下文菜单等默认行为
+  // 移动端：不要在 touchstart 阶段 preventDefault，否则会直接影响滚动手势
+  const isTouchEvent = 'touches' in e;
+  if (!isTouchEvent && e.cancelable) {
     e.preventDefault();
   }
   e.stopPropagation();
@@ -1540,6 +1767,7 @@ function onMaintextLongPressEnd() {
     clearTimeout(longPressTimerRef.value);
     longPressTimerRef.value = null;
   }
+  maintextTouchStartPos.value = null;
 }
 
 function onMaintextMouseDown(e: MouseEvent) {
@@ -1554,9 +1782,30 @@ function onMaintextMouseDown(e: MouseEvent) {
 function onMaintextTouchStart(e: TouchEvent) {
   console.log('[长按] 触摸开始', { hasMenu: !!contextMenu.value, hasValidId: hasValidMessageId() });
   if (contextMenu.value) return;
-  e.stopPropagation();
   if (hasValidMessageId()) {
+    const touch = e.touches[0] ?? e.changedTouches[0];
+    if (touch) {
+      maintextTouchStartPos.value = { x: touch.clientX, y: touch.clientY };
+    }
     onMaintextLongPressStart(e);
+  }
+}
+
+function onMaintextTouchMove(e: TouchEvent) {
+  if (!longPressTimerRef.value) return;
+  const startPos = maintextTouchStartPos.value;
+  if (!startPos) return;
+
+  const touch = e.touches[0];
+  if (!touch) return;
+
+  const dx = Math.abs(touch.clientX - startPos.x);
+  const dy = Math.abs(touch.clientY - startPos.y);
+
+  // 手指明显移动则认为是滚动操作，取消长按计时
+  const cancelDistancePx = 10;
+  if (Math.hypot(dx, dy) >= cancelDistancePx) {
+    onMaintextLongPressEnd();
   }
 }
 
@@ -1603,13 +1852,14 @@ async function handleRegenerate() {
       throw new Error('generate 函数不可用');
     }
 
+    aiGenerationStartMs.value = Date.now();
     let result = await generate({
       user_input: userMessageText,
       should_stream: true,
     });
 
     // 双API模式：调用第二API处理变量
-    if (isDualMode && result && secondaryApiConfig?.url) {
+    if (isDualMode && result && isSecondaryApiConfigured(secondaryApiConfig)) {
       try {
         const { processWithSecondaryApi } = await import('./utils/apiSettings');
         const maintextMatch = result.match(/<maintext>([\s\S]*?)<\/maintext>/i);
@@ -1633,9 +1883,11 @@ async function handleRegenerate() {
     const filteredResult = extractFilteredContent(result);
     mainText.value = parseMaintext(filteredResult);
     options.value = parseOptions(filteredResult);
+    refreshFromRerollAfterTagConfirm.value = true;
     openTagValidationDialog(filteredResult);
   } catch (error) {
     console.error('❌ [App] 重 roll 失败:', error);
+    refreshFromRerollAfterTagConfirm.value = false;
     toastr.error('重 roll 失败: ' + String(error));
     loadMessageContent();
   } finally {
@@ -1709,7 +1961,7 @@ async function handleRegenerateVariablesOnly() {
       try {
         // 复用 apiSettings 里的常量名，避免写死字符串
         const { WORLDBOOK_ENTRIES } = await import('./utils/apiSettings');
-        const worldbookName = (SillyTavern.getCharacterInfo?.()?.worldbook_name) || '规则系统';
+        const worldbookName = ((SillyTavern as any).getCharacterInfo?.()?.worldbook_name) || '规则系统';
         const entries = await getWorldbook(worldbookName);
         const findContent = (name: string) =>
           (entries.find((e: any) => (e?.name || '').includes(name))?.content || '').trim();
@@ -1756,11 +2008,11 @@ ${maintext}
 
     // 生成新的 UpdateVariable
     let updateVariable = '';
-    if (mode === 'dual' && secondaryApiConfig?.url) {
+    if (mode === 'dual' && isSecondaryApiConfigured(secondaryApiConfig)) {
       // 双API：优先走第二 API（generateRaw + 短上下文）
       const { processWithSecondaryApi } = await import('./utils/apiSettings');
       updateVariable = await processWithSecondaryApi(maintext, secondaryApiConfig);
-    } else if (secondaryApiConfig?.url) {
+    } else if (isSecondaryApiConfigured(secondaryApiConfig)) {
       // 单API但配置了第二 API：同样可以走第二 API 来“只重roll变量”
       const { processWithSecondaryApi } = await import('./utils/apiSettings');
       updateVariable = await processWithSecondaryApi(maintext, secondaryApiConfig);
@@ -1848,7 +2100,7 @@ async function confirmVariableRerollApply() {
     }
 
     closeVariableRerollDialog();
-    loadMessageContent();
+    refreshMessage();
     toastr.success('变量已应用到当前楼层');
   } catch (e) {
     console.error('❌ [App] 应用变量更新失败:', e);
@@ -1931,7 +2183,7 @@ function closeContextMenu() {
 }
 
 // 上下文菜单样式（计算属性确保边界安全）
-const contextMenuStyle = computed(() => {
+const contextMenuStyle = computed((): any => {
   if (!contextMenu.value) return {};
   const menuWidth = 200;
   const menuHeight = 140;
@@ -2035,11 +2287,11 @@ async function loadSaveHistory() {
       .map(msg => {
         const message = msg.message || '';
         // 提取 <sum> 标签内容
-        const sumMatch = message.match(/<sum>([\s\S]*?)<\/sum>/i);
+        const sumText = extractLastSumContent(message);
         return {
           messageId: msg.message_id,
           turnNumber: Math.floor(msg.message_id / 2),
-          sum: sumMatch ? sumMatch[1].trim() : '',
+          sum: sumText,
           timestamp: new Date(msg.data?.timestamp || Date.now()).toLocaleString()
         };
       })
@@ -2122,6 +2374,7 @@ async function rollbackToSnapshot() {
 
     // 4. 清理临时状态
     lastGenerationRaw.value = '';
+    lastGenerationDurationLabel.value = '';
     pendingUserMessageId.value = null;
     isTagDialogOpen.value = false;
     showAiOutput.value = false; // 重置展开状态
@@ -2137,8 +2390,12 @@ async function rollbackToSnapshot() {
 // 打开标签验证弹窗
 function openTagValidationDialog(rawText: string) {
   lastGenerationRaw.value = rawText;
+  const elapsed =
+    aiGenerationStartMs.value > 0 ? Date.now() - aiGenerationStartMs.value : NaN;
+  lastGenerationDurationLabel.value = formatGenerationDurationMs(elapsed);
   tagCheckResults.value = validateTags(rawText);
   isTagDialogOpen.value = true;
+  showAiOutput.value = false; // 默认折叠“AI 完整输出”
   console.log('🔍 [App] 打开标签验证弹窗:', tagCheckResults.value);
 }
 
@@ -2157,6 +2414,7 @@ async function onTagDialogIgnore() {
   // 兜底：确认前再次检查，防止界面出现“空白无提示”
   if (!finalMaintext && finalOptions.length === 0) {
     console.warn('⚠️ [App] 标签确认时检测到空回，自动回退');
+    refreshFromRerollAfterTagConfirm.value = false;
     toastr.error('AI 返回内容为空，已回退到发送前状态');
     await rollbackToSnapshot();
     isTagDialogOpen.value = false;
@@ -2168,37 +2426,56 @@ async function onTagDialogIgnore() {
   mainText.value = finalMaintext;
   options.value = finalOptions;
 
-  // 静默记录到酒馆楼层（等待写入完成）
-  await recordAssistantMessage(lastGenerationRaw.value);
-  // 修正可能出现的变量套娃，确保前端能从 stat_data 根读取到中文结构
-  await normalizeLatestChineseStatData();
+  const snapshotRaw = lastGenerationRaw.value;
+  const wasOpeningPhase = isOpeningPhase.value;
+
+  // 开局：立刻进入主界面以便阅读正文；标签弹窗立即关闭，后续用顶栏轻提示
+  if (wasOpeningPhase) {
+    gamePhase.value = GamePhase.GAME;
+  }
+  isTagDialogOpen.value = false;
+  isVariablePersistInProgress.value = true;
+
+  try {
+    await recordAssistantMessage(snapshotRaw);
+    await normalizeLatestChineseStatData();
+
+    if (wasOpeningPhase && typeof getLastMessageId === 'function') {
+      const assistantId = getLastMessageId();
+      await refineOpeningAssistantWithSecondaryApi(snapshotRaw, assistantId);
+      await normalizeLatestChineseStatData();
+    }
+  } finally {
+    isVariablePersistInProgress.value = false;
+  }
 
   // 清理状态
   lastGenerationRaw.value = '';
+  lastGenerationDurationLabel.value = '';
   pendingUserMessageId.value = null;
   lastUserInputSnapshot.value = '';
   lastMaintextSnapshot.value = '';
   lastOptionsSnapshot.value = [];
   lastMessageIdSnapshot.value = undefined;
-  isTagDialogOpen.value = false;
   isGenerating.value = false;
   showAiOutput.value = false; // 重置展开状态
 
-  // 如果是开局流程，进入游戏阶段
-  if (isOpeningPhase.value) {
+  // 如果是开局流程，结束初始化并刷新楼层元数据
+  if (wasOpeningPhase) {
     console.log('🎮 [App] 开局确认，进入游戏主界面...');
-    gamePhase.value = GamePhase.GAME;
     isOpeningPhase.value = false;
     isInitializing.value = false;
 
-    // 加载消息内容
     setTimeout(() => {
       loadMessageContent();
     }, 500);
 
     toastr.success('游戏初始化完成！');
+  } else if (refreshFromRerollAfterTagConfirm.value) {
+    refreshFromRerollAfterTagConfirm.value = false;
+    refreshMessage();
+    toastr.success('已确认，继续游戏');
   } else {
-    // 正常流程：刷新当前消息信息，使长按重 roll 使用正确的 messageId / userMessageId
     loadMessageContent();
     toastr.success('已确认，继续游戏');
   }
@@ -2207,6 +2484,7 @@ async function onTagDialogIgnore() {
 // 处理标签验证弹窗 - 回退
 async function onTagDialogRollback() {
   console.log('⏮️ [App] 用户选择回退');
+  refreshFromRerollAfterTagConfirm.value = false;
 
   // 如果是开局流程，删除已创建的 user 消息并回到开局表单
   if (isOpeningPhase.value) {
@@ -2225,6 +2503,7 @@ async function onTagDialogRollback() {
     // 清理状态
     pendingUserMessageId.value = null;
     lastGenerationRaw.value = '';
+    lastGenerationDurationLabel.value = '';
     isTagDialogOpen.value = false;
     isGenerating.value = false;
     isInitializing.value = false;
@@ -2246,6 +2525,66 @@ async function onTagDialogRollback() {
   await rollbackToSnapshot();
   isGenerating.value = false;
   showAiOutput.value = false; // 重置展开状态
+}
+
+/**
+ * 开局确认、首条 assistant 已写入后：基于当前楼层已解析的 MVU 再请求一次第二 API，刷新 &lt;UpdateVariable&gt;。
+ * 与进游戏后手动「单独重roll变量」/ 在 MVU 里重试额外模型解析类似，在开局阶段自动完成一轮。
+ */
+async function refineOpeningAssistantWithSecondaryApi(
+  fullMessageUsedForRecord: string,
+  assistantMessageId: number,
+): Promise<void> {
+  try {
+    const { getSecondaryApiConfig, processWithSecondaryApi, isSecondaryApiConfigured } = await import(
+      './utils/apiSettings',
+    );
+    const secondaryApiConfig = await getSecondaryApiConfig();
+    if (!isSecondaryApiConfigured(secondaryApiConfig)) return;
+
+    if (typeof getChatMessages === 'function') {
+      const msgs = getChatMessages(assistantMessageId);
+      if (!msgs?.[0] || msgs[0].role !== 'assistant') {
+        console.warn('⚠️ [App] 开局精炼变量：目标楼层不是 assistant，跳过');
+        return;
+      }
+    }
+
+    const filtered = extractFilteredContent(fullMessageUsedForRecord);
+    const maintext = extractLastTagContent(filtered, 'maintext');
+    if (!maintext.trim()) {
+      console.log('ℹ️ [App] 开局精炼变量：无 maintext，跳过');
+      return;
+    }
+
+    const updateVariable = await processWithSecondaryApi(maintext, secondaryApiConfig);
+    if (!updateVariable?.trim()) return;
+
+    const oldPatch = extractLastTagContent(filtered, 'UpdateVariable');
+    if (oldPatch.trim() === updateVariable.trim()) {
+      console.log('ℹ️ [App] 开局精炼变量：第二 API 与首轮 patch 相同，跳过写回');
+      return;
+    }
+
+    if (typeof setChatMessages !== 'function') return;
+
+    const withoutOld = filtered.replace(/<UpdateVariable>[\s\S]*?<\/UpdateVariable>\s*/gi, '').trim();
+    const updatedMessage = `${withoutOld}\n\n<UpdateVariable>\n${updateVariable.trim()}\n</UpdateVariable>`;
+
+    await setChatMessages([{ message_id: assistantMessageId, message: updatedMessage }], { refresh: 'affected' });
+
+    await waitGlobalInitialized('Mvu');
+    const baseId = Math.max(assistantMessageId - 1, 0);
+    const base = Mvu.getMvuData({ type: 'message', message_id: baseId });
+    const parsed =
+      typeof Mvu?.parseMessage === 'function' ? await Mvu.parseMessage(updatedMessage, base) : null;
+    if (parsed) {
+      await replaceVariables(parsed, { type: 'message', message_id: assistantMessageId });
+    }
+    console.log('✅ [App] 开局精炼变量：已应用第二遍第二 API');
+  } catch (e) {
+    console.warn('⚠️ [App] 开局精炼变量失败，保留首轮解析结果:', e);
+  }
 }
 
 // 静默记录 assistant 消息到酒馆楼层
@@ -2328,8 +2667,8 @@ async function checkGamePhase() {
           // 安全兜底：避免异常数据导致布局极端变窄
           const safeMaxWidth = Number(uiLayout.value.maxWidth);
           if (!Number.isFinite(safeMaxWidth) || safeMaxWidth < 800) {
-            uiLayout.value.maxWidth = 1400; // 给一个合理的默认值
-            console.log('⚠️ [App] 已有游戏：检测到异常maxWidth，已重置为1400');
+            uiLayout.value.maxWidth = 900; // 与设置面板最小宽度一致
+            console.log('⚠️ [App] 已有游戏：检测到异常maxWidth，已重置为900');
           }
         }
       } catch (e) {
@@ -2409,7 +2748,7 @@ async function handleOpeningSubmit(formData: OpeningFormData) {
   isOpeningPhase.value = true; // 标记为开局流程
   console.log('🎮 [App] 开始初始化游戏...', formData);
 
-  let unsubscribeStream: (() => void) | null = null;
+  let unsubscribeStream: any = null;
   let streamSubscriptionSuccess = false;
 
   // 检测当前输出模式
@@ -2505,6 +2844,7 @@ async function handleOpeningSubmit(formData: OpeningFormData) {
       }
 
       // 调用 generate
+      aiGenerationStartMs.value = Date.now();
       let result = await generate({
         user_input: userPrompt,
         should_stream: true,
@@ -2512,7 +2852,7 @@ async function handleOpeningSubmit(formData: OpeningFormData) {
       console.log('✅ [App] generate 完成，结果长度:', result?.length || 0);
 
       // 双API模式：调用第二API处理变量
-      if (isDualMode && result && secondaryApiConfig?.url) {
+      if (isDualMode && result && isSecondaryApiConfigured(secondaryApiConfig)) {
         try {
           const { processWithSecondaryApi } = await import('./utils/apiSettings');
           const maintextMatch = result.match(/<maintext>([\s\S]*?)<\/maintext>/i);
@@ -2532,7 +2872,11 @@ async function handleOpeningSubmit(formData: OpeningFormData) {
 
       // 清理流式监听
       if (streamSubscriptionSuccess && unsubscribeStream) {
-        try { unsubscribeStream(); } catch (err) { }
+        try {
+          unsubscribeStream?.();
+        } catch {
+          /* 流式监听已释放或宿主不支持 */
+        }
       }
 
       // 验证结果
@@ -2571,7 +2915,23 @@ async function handleOpeningSubmit(formData: OpeningFormData) {
 }
 
 // 组件挂载时加载消息并监听事件
-let unsubscribeMessageUpdate: (() => void) | null = null;
+let unsubscribeMessageUpdate: any = null;
+let unsubscribeChatChange: (() => void) | null = null;
+
+watch(
+  () => gamePhase.value,
+  (phase) => {
+    if (phase === GamePhase.GAME) {
+      setTimeout(() => maybeOfferOrphanUserFloorFix(), 500);
+    }
+  },
+);
+
+function onPageShowStaleUserCheck() {
+  if (gamePhase.value === GamePhase.GAME) {
+    setTimeout(() => maybeOfferOrphanUserFloorFix(), 400);
+  }
+}
 
 onMounted(() => {
   // 检查游戏阶段并加载内容
@@ -2588,9 +2948,10 @@ onMounted(() => {
         const safeScale = Number(uiLayout.value.scale);
         const safeMaxWidth = Number(uiLayout.value.maxWidth);
         const safeMaxHeight = Number(uiLayout.value.maxHeight);
-        uiLayout.value.scale = Number.isFinite(safeScale) ? Math.min(1.3, Math.max(0.8, safeScale)) : 1;
-        uiLayout.value.maxWidth = Number.isFinite(safeMaxWidth) ? Math.max(320, safeMaxWidth) : 1400;
-        uiLayout.value.maxHeight = Number.isFinite(safeMaxHeight) ? Math.max(320, safeMaxHeight) : 850;
+        uiLayout.value.scale = Number.isFinite(safeScale) ? Math.min(1.3, Math.max(0.8, safeScale)) : 0.8;
+        // 最小宽度 800：避免变量里写入过小值导致界面缩成一条
+        uiLayout.value.maxWidth = Number.isFinite(safeMaxWidth) ? Math.min(2400, Math.max(800, safeMaxWidth)) : 900;
+        uiLayout.value.maxHeight = Number.isFinite(safeMaxHeight) ? Math.max(400, safeMaxHeight) : 400;
       }
     } catch (e) {
       console.warn('⚠️ [App] 读取 uiLayout 设置失败:', e);
@@ -2610,12 +2971,28 @@ onMounted(() => {
         // 如果不在生成中，才刷新（避免覆盖正在流式显示的内容）
         if (!isGenerating.value) {
           loadMessageContent();
+          maybeOfferOrphanUserFloorFix();
         }
       });
     }
   } catch (e) {
     console.warn('⚠️ [App] 无法监听消息事件:', e);
   }
+
+  // 切换聊天文件后重新检测末尾楼层
+  try {
+    if (typeof eventOn === 'function' && typeof tavern_events !== 'undefined') {
+      unsubscribeChatChange = eventOn(tavern_events.CHAT_CHANGED, () => {
+        orphanUserFloorDismissedMid.value = null;
+        orphanUserFloorDialogOpen.value = false;
+        setTimeout(() => maybeOfferOrphanUserFloorFix(), 500);
+      });
+    }
+  } catch (e) {
+    console.warn('⚠️ [App] 无法监听 CHAT_CHANGED:', e);
+  }
+
+  window.addEventListener('pageshow', onPageShowStaleUserCheck);
 
   console.log('✅ [App] 同层前端界面挂载完成');
 });
@@ -2624,8 +3001,12 @@ onUnmounted(() => {
   // 清理事件监听
   document.removeEventListener('fullscreenchange', onFullscreenChange);
   window.removeEventListener('th:copy-to-input', onCopyToInputEvent as EventListener);
+  window.removeEventListener('pageshow', onPageShowStaleUserCheck);
   if (typeof unsubscribeMessageUpdate === 'function') {
     unsubscribeMessageUpdate();
+  }
+  if (typeof unsubscribeChatChange === 'function') {
+    unsubscribeChatChange();
   }
   stopIframeHeightFix?.();
   stopIframeHeightFix = null;
@@ -2637,7 +3018,7 @@ onUnmounted(() => {
   display: flex;
   width: 100%;
   height: var(--ui-max-height, 100%);
-  max-width: var(--ui-max-width, 1400px);
+  max-width: var(--ui-max-width, 900px);
   max-height: var(--ui-max-height, 100%);
   margin: 0 auto;
   overflow: hidden;
@@ -2679,7 +3060,7 @@ onUnmounted(() => {
 .sidebar {
   width: var(--sidebar-width);
   height: 100%;
-  max-height: var(--ui-max-height, 850px);
+  max-height: var(--ui-max-height, 600px);
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -2838,7 +3219,7 @@ onUnmounted(() => {
 .middle-panel {
   width: var(--middle-panel-width);
   height: 100%;
-  max-height: var(--ui-max-height, 850px);
+  max-height: var(--ui-max-height, 600px);
   flex-shrink: 0;
   overflow: hidden;
   box-shadow: 0 0 calc(40px * var(--ui-scale, 1)) rgba(0, 0, 0, 0.3);
@@ -2963,7 +3344,7 @@ onUnmounted(() => {
   z-index: 10;
   overflow: hidden;
   height: 100%;
-  max-height: var(--ui-max-height, 850px);
+  max-height: var(--ui-max-height, 600px);
 }
 
 .dark .main-panel {
@@ -3017,6 +3398,34 @@ onUnmounted(() => {
   }
 }
 
+.variable-persist-banner {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) calc(20px * var(--ui-scale, 1));
+  font-size: calc(12px * var(--ui-scale, 1));
+  line-height: 1.45;
+  border-bottom: 1px solid transparent;
+
+  i {
+    flex-shrink: 0;
+    font-size: calc(14px * var(--ui-scale, 1));
+  }
+}
+
+.variable-persist-banner.dark {
+  background: rgba(234, 179, 8, 0.12);
+  border-bottom-color: rgba(250, 204, 21, 0.25);
+  color: #fde68a;
+}
+
+.variable-persist-banner.light {
+  background: rgba(251, 191, 36, 0.18);
+  border-bottom-color: rgba(245, 158, 11, 0.35);
+  color: #92400e;
+}
+
 .header-btn {
   background: transparent;
   border: none;
@@ -3052,6 +3461,26 @@ onUnmounted(() => {
 
 .light .header-btn.active {
   color: #2563eb;
+}
+
+.header-btn-recover {
+  color: #f59e0b;
+}
+
+.dark .header-btn-recover {
+  color: #fbbf24;
+
+  &:hover {
+    color: #fde68a;
+  }
+}
+
+.light .header-btn-recover {
+  color: #d97706;
+
+  &:hover {
+    color: #b45309;
+  }
 }
 
 // 游戏内容区域
@@ -4029,7 +4458,7 @@ onUnmounted(() => {
 }
 
 .input-area {
-  padding: var(--space-xl) calc(32px * var(--ui-scale, 1));
+  padding: var(--space-lg) calc(32px * var(--ui-scale, 1));
   border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
 
@@ -4043,75 +4472,110 @@ onUnmounted(() => {
   border-color: rgba(0, 0, 0, 0.05);
 }
 
+// 输入框 + 发送：一体条（flex），避免按钮浮在框内产生缝隙
 .input-wrapper {
-  position: relative;
+  display: flex;
+  align-items: stretch;
   max-width: calc(1000px * var(--ui-scale, 1));
   margin: 0 auto;
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  transition: box-shadow 0.2s, border-color 0.2s;
+
+  &:focus-within {
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25);
+    border-color: rgba(255, 255, 255, 0.2);
+  }
 
   textarea {
-    width: 100%;
-    border-radius: var(--radius-xl);
-    padding: var(--space-lg) calc(64px * var(--ui-scale, 1)) var(--space-lg) var(--space-xl);
-    font-size: calc(16px * var(--ui-scale, 1));
+    flex: 1;
+    min-width: 0;
+    width: auto;
+    border: none;
+    border-radius: 0;
+    padding: var(--space-md) var(--space-md) var(--space-md) var(--space-xl);
+    font-size: calc(15px * var(--ui-scale, 1));
+    line-height: 1.5;
     resize: none;
     outline: none;
-    transition: all 0.2s;
+    background: transparent;
+    color: inherit;
+    transition: color 0.2s, opacity 0.2s;
 
-    &:focus {
-      box-shadow: 0 0 0 1px currentColor;
+    &::placeholder {
+      color: #52525b;
+    }
+
+    &:disabled {
+      opacity: 0.75;
+      cursor: not-allowed;
     }
   }
 }
 
-.dark .input-wrapper textarea {
+.dark .input-wrapper {
+  border-color: rgba(255, 255, 255, 0.1);
   background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
   color: #fff;
 
-  &::placeholder { color: #52525b; }
-
-  &:focus {
-    border-color: rgba(255, 255, 255, 0.2);
+  &:focus-within {
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.22);
   }
 
-  &:disabled {
-    background: rgba(255, 255, 255, 0.02);
-    border-color: rgba(255, 255, 255, 0.05);
-    color: #71717a;
-    cursor: not-allowed;
+  textarea {
+    &::placeholder {
+      color: #52525b;
+    }
+
+    &:disabled {
+      color: #71717a;
+    }
   }
 }
 
-.light .input-wrapper textarea {
+.light .input-wrapper {
+  border-color: rgba(0, 0, 0, 0.1);
   background: #fff;
-  border: 1px solid rgba(0, 0, 0, 0.1);
   color: #18181b;
 
-  &::placeholder { color: #a1a1aa; }
-
-  &:focus {
-    border-color: rgba(0, 0, 0, 0.2);
+  &:focus-within {
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.18);
+    border-color: rgba(0, 0, 0, 0.18);
   }
 
-  &:disabled {
-    background: rgba(0, 0, 0, 0.02);
-    border-color: rgba(0, 0, 0, 0.05);
-    color: #a1a1aa;
-    cursor: not-allowed;
+  textarea {
+    &::placeholder {
+      color: #a1a1aa;
+    }
+
+    &:disabled {
+      color: #a1a1aa;
+    }
   }
 }
 
-// 发送按钮 - 原版酒馆风格：深灰背景 + 浅灰图标，悬停略亮，发送中灰+旋转
+// 发送按钮：贴在输入条右侧，与框共用外轮廓
 .send-btn {
-  position: absolute;
-  bottom: var(--space-lg);
-  right: var(--space-lg);
-  padding: var(--space-md);
-  border-radius: var(--radius-lg);
+  position: static;
+  transform: none;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  min-width: calc(72px * var(--ui-scale, 1));
+  padding: 0 var(--space-lg);
+  margin: 0;
   border: none;
+  border-radius: 0;
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
   cursor: pointer;
-  transition: all 0.2s;
-  font-size: calc(20px * var(--ui-scale, 1));
+  font-size: calc(14px * var(--ui-scale, 1));
+  font-weight: 500;
+  transition: background 0.2s, color 0.2s;
 
   &:disabled {
     cursor: not-allowed;
@@ -4124,6 +4588,7 @@ onUnmounted(() => {
 .main-panel.dark .send-btn {
   background: #363f46;
   color: #a9a9a9;
+  border-left-color: rgba(255, 255, 255, 0.12);
 
   &:hover:not(:disabled) {
     background: #434d58;
@@ -4139,6 +4604,7 @@ onUnmounted(() => {
 .main-panel.light .send-btn {
   background: #e5e7eb;
   color: #6b7280;
+  border-left-color: rgba(0, 0, 0, 0.08);
 
   &:hover:not(:disabled) {
     background: #d1d5db;
@@ -4171,11 +4637,11 @@ onUnmounted(() => {
   50% { opacity: 0.5; }
 }
 
-// Modal
+// Modal（需高于 .middle-panel 手机抽屉 z-index: 60，否则点「编辑」弹窗在抽屉下方看不见）
 .modal-overlay {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  z-index: 80;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4488,54 +4954,122 @@ onUnmounted(() => {
   }
 }
 
+// 末尾玩家楼层提示（叠在标签弹窗之上，避免被挡）
+.orphan-user-floor-overlay {
+  z-index: 10002;
+}
+
+.orphan-user-floor-modal {
+  max-width: 440px;
+  width: 100%;
+}
+
+.orphan-user-floor-intro,
+.orphan-user-floor-hint {
+  font-size: 14px;
+  line-height: 1.55;
+  margin: 0 0 12px;
+  color: #a1a1aa;
+}
+
+.light .orphan-user-floor-intro,
+.light .orphan-user-floor-hint {
+  color: #52525b;
+}
+
+.orphan-user-floor-meta {
+  font-size: 13px;
+  margin: 0 0 12px;
+  color: #e4e4e7;
+
+  code {
+    font-family: ui-monospace, monospace;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.08);
+  }
+}
+
+.light .orphan-user-floor-meta {
+  color: #27272a;
+
+  code {
+    background: rgba(0, 0, 0, 0.06);
+  }
+}
+
+.orphan-user-floor-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
 // 标签验证弹窗样式 - 紧凑设计
 .tag-validation-overlay {
   z-index: 10001;
-  padding: 8px; // 减少 padding
+  align-items: flex-start;
+  justify-content: center;
+  padding: 8px 10px;
+  padding-top: calc(48px * var(--ui-scale, 1));
 }
 
 .tag-validation-modal {
-  max-width: 380px; // 减小弹窗最大宽度
+  max-width: 440px;
   width: 100%;
-  max-height: 90vh; // 限制最大高度
+  max-height: min(78vh, calc(100dvh - 88px));
   overflow-y: auto;
 }
 
 .tag-validation-modal .modal-header {
-  padding: 16px 20px; // 减少 header padding
+  padding: 10px 14px;
 
   h2 {
-    font-size: 16px; // 减小标题字体
+    font-size: 15px;
   }
 }
 
 .tag-validation-modal .modal-body {
-  padding: 16px 20px; // 减少 body padding
-  min-height: auto; // 移除 min-height 限制
+  padding: 10px 14px;
+  min-height: auto;
 }
 
 .tag-validation-modal .modal-footer {
-  padding: 16px 20px; // 减少 footer padding
+  padding: 10px 14px;
 }
 
 .tag-validation-content {
   .validation-intro {
-    font-size: 13px;
+    font-size: 12px;
     color: #a1a1aa;
-    margin-bottom: 12px;
+    margin: 0 0 4px;
+    line-height: 1.35;
+  }
+
+  .ai-output-time {
+    font-size: 11px;
+    margin-bottom: 8px;
+    font-family: ui-monospace, monospace;
+    opacity: 0.95;
+    color: #a1a1aa;
   }
 
   .tag-status-list {
-    display: flex;
-    flex-direction: column;
-    gap: 8px; // 减小间距
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+
+    @media (max-width: 380px) {
+      grid-template-columns: 1fr;
+    }
   }
 
   .tag-status-item {
-    padding: 10px 14px; // 减小 padding
+    padding: 6px 8px;
     border-radius: 6px;
     border: 1px solid rgba(255, 255, 255, 0.1);
     background: rgba(255, 255, 255, 0.02);
+    min-width: 0;
 
     &.is-valid {
       border-color: rgba(34, 197, 94, 0.3);
@@ -4546,25 +5080,43 @@ onUnmounted(() => {
       border-color: rgba(239, 68, 68, 0.3);
       background: rgba(239, 68, 68, 0.05);
     }
+
+    &.is-warning {
+      border-color: rgba(234, 179, 8, 0.45);
+      background: rgba(234, 179, 8, 0.08);
+    }
   }
 
   .tag-status-header {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
+    gap: 6px;
     margin-bottom: 2px;
   }
 
   .tag-name {
-    font-family: monospace;
-    font-size: 13px; // 减小字体
+    font-size: 12px;
     font-weight: 600;
     color: #e4e4e7;
+    line-height: 1.25;
+    min-width: 0;
+  }
+
+  .tag-name-code {
+    display: block;
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    font-weight: 500;
+    opacity: 0.75;
+    margin-top: 2px;
+    word-break: break-all;
   }
 
   .tag-badge {
-    font-size: 11px; // 减小字体
-    padding: 2px 6px;
+    flex-shrink: 0;
+    font-size: 10px;
+    padding: 2px 5px;
     border-radius: 4px;
     font-weight: 500;
 
@@ -4577,42 +5129,82 @@ onUnmounted(() => {
       background: rgba(239, 68, 68, 0.15);
       color: #ef4444;
     }
+
+    &.badge-warning {
+      background: rgba(234, 179, 8, 0.18);
+      color: #eab308;
+    }
   }
 
   .tag-message {
-    font-size: 12px; // 减小字体
+    font-size: 11px;
     color: #71717a;
     margin: 0;
+    line-height: 1.35;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .validation-duplicate-hint {
+    margin-bottom: 8px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: rgba(234, 179, 8, 0.12);
+    border: 1px solid rgba(234, 179, 8, 0.35);
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    font-size: 11px;
+    color: #eab308;
     line-height: 1.4;
+
+    i {
+      font-size: 11px;
+      margin-top: 2px;
+      flex-shrink: 0;
+    }
   }
 
   .validation-warning {
-    margin-top: 12px;
-    padding: 10px 12px;
+    margin-top: 8px;
+    padding: 8px 10px;
     border-radius: 6px;
     background: rgba(245, 158, 11, 0.1);
     border: 1px solid rgba(245, 158, 11, 0.2);
     display: flex;
     align-items: flex-start;
-    gap: 8px;
-    font-size: 12px;
+    gap: 6px;
+    font-size: 11px;
     color: #f59e0b;
 
     i {
-      font-size: 12px;
-      margin-top: 2px;
+      font-size: 11px;
+      margin-top: 1px;
     }
+  }
+
+  .ai-output-section {
+    margin-top: 8px;
+  }
+
+  .ai-output-toggle {
+    font-size: 12px;
+    padding: 6px 0;
   }
 }
 
 .dark .tag-validation-content {
   .validation-intro { color: #a1a1aa; }
+  .ai-output-time { color: #a1a1aa; }
   .tag-name { color: #e4e4e7; }
   .tag-message { color: #71717a; }
 }
 
 .light .tag-validation-content {
   .validation-intro { color: #71717a; }
+  .ai-output-time { color: #71717a; }
   .tag-name { color: #27272a; }
   .tag-message { color: #a1a1aa; }
 
@@ -4628,6 +5220,11 @@ onUnmounted(() => {
     &.is-invalid {
       border-color: rgba(239, 68, 68, 0.3);
       background: rgba(239, 68, 68, 0.05);
+    }
+
+    &.is-warning {
+      border-color: rgba(234, 179, 8, 0.45);
+      background: rgba(254, 251, 231, 0.95);
     }
   }
 }
