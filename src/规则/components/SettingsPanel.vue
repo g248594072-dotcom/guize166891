@@ -478,10 +478,10 @@ type UiLayoutSettings = {
 };
 
 const uiLayout = ref<UiLayoutSettings>({
-  scale: 1,
-  maxWidth: 1400,
+  scale: 0.8,
+  maxWidth: 900,
   heightMode: 'fit',
-  maxHeight: 850,
+  maxHeight: 400,
 });
 
 // 从变量存储加载设置

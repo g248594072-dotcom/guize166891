@@ -14,77 +14,118 @@ export interface TagCheckResult {
   message: string;
 }
 
+const emptyTagResult = (tag: string): TagCheckResult => ({
+  tag,
+  isValid: false,
+  isOpen: false,
+  isClosed: false,
+  message: '消息内容为空',
+});
+
 /**
  * 验证消息中的标签闭合情况
- * 检查 <maintext>, <option>, <sum> 等关键标签
+ * 顺序：thinking → maintext → option → sum → UpdateVariable
  */
 export function validateTags(messageContent: string): TagCheckResult[] {
   if (!messageContent) {
     return [
-      { tag: 'maintext', isValid: false, isOpen: false, isClosed: false, message: '消息内容为空' },
-      { tag: 'option', isValid: false, isOpen: false, isClosed: false, message: '消息内容为空' },
-      { tag: 'sum', isValid: false, isOpen: false, isClosed: false, message: '消息内容为空' }
+      emptyTagResult('thinking'),
+      emptyTagResult('maintext'),
+      emptyTagResult('option'),
+      emptyTagResult('sum'),
+      emptyTagResult('UpdateVariable'),
     ];
   }
 
-  const results: TagCheckResult[] = [];
-
-  // 检查 <maintext> 标签
-  const maintextOpen = (messageContent.match(/<maintext>/gi) || []).length;
-  const maintextClose = (messageContent.match(/<\/maintext>/gi) || []).length;
-  results.push({
-    tag: 'maintext',
-    isValid: maintextOpen > 0 && maintextOpen === maintextClose,
-    isOpen: maintextOpen > 0,
-    isClosed: maintextClose > 0 && maintextOpen === maintextClose,
-    message: maintextOpen === 0 ? '缺少 <maintext> 标签' :
-             maintextOpen > maintextClose ? `<maintext> 未闭合 (${maintextOpen} 个开标签, ${maintextClose} 个闭标签)` :
-             maintextOpen < maintextClose ? `多余的 </maintext> 标签 (${maintextOpen} 个开标签, ${maintextClose} 个闭标签)` :
-             `<maintext> 标签完整 (${maintextOpen} 对)`
-  });
-
-  // 检查 <option> 标签
-  const optionOpen = (messageContent.match(/<option/gi) || []).length;
-  const optionClose = (messageContent.match(/<\/option>/gi) || []).length;
-  results.push({
-    tag: 'option',
-    isValid: optionOpen > 0 && optionOpen === optionClose,
-    isOpen: optionOpen > 0,
-    isClosed: optionClose > 0 && optionOpen === optionClose,
-    message: optionOpen === 0 ? '缺少 <option> 标签' :
-             optionOpen > optionClose ? `<option> 未闭合 (${optionOpen} 个开标签, ${optionClose} 个闭标签)` :
-             optionOpen < optionClose ? `多余的 </option> 标签 (${optionOpen} 个开标签, ${optionClose} 个闭标签)` :
-             `<option> 标签完整 (${optionOpen} 对)`
-  });
-
-  // 检查 <sum> 标签（可选但推荐）
-  const sumOpen = (messageContent.match(/<sum>/gi) || []).length;
-  const sumClose = (messageContent.match(/<\/sum>/gi) || []).length;
-  results.push({
-    tag: 'sum',
-    isValid: sumOpen === sumClose, // sum 是可选的，但如果有必须闭合
-    isOpen: sumOpen > 0,
-    isClosed: sumClose > 0 && sumOpen === sumClose,
-    message: sumOpen === 0 ? '无 <sum> 标签（可选）' :
-             sumOpen > sumClose ? `<sum> 未闭合 (${sumOpen} 个开标签, ${sumClose} 个闭标签)` :
-             sumOpen < sumClose ? `多余的 </sum> 标签 (${sumOpen} 个开标签, ${sumClose} 个闭标签)` :
-             `<sum> 标签完整 (${sumOpen} 对)`
-  });
-
-  // 检查 <thinking> 标签是否已闭合（应该已闭合）
+  // 检查 <thinking>
   const thinkingOpen = (messageContent.match(/<thinking>/gi) || []).length;
   const thinkingClose = (messageContent.match(/<\/thinking>/gi) || []).length;
-  results.push({
+  const thinking: TagCheckResult = {
     tag: 'thinking',
     isValid: thinkingOpen === thinkingClose,
     isOpen: thinkingOpen > 0,
     isClosed: thinkingClose > 0 && thinkingOpen === thinkingClose,
-    message: thinkingOpen === 0 ? '无 <thinking> 标签' :
-             thinkingOpen !== thinkingClose ? `<thinking> 标签未正确闭合 (${thinkingOpen} 个开标签, ${thinkingClose} 个闭标签)` :
-             `<thinking> 标签完整 (${thinkingOpen} 对)`
-  });
+    message:
+      thinkingOpen === 0
+        ? '无 <thinking> 标签'
+        : thinkingOpen !== thinkingClose
+          ? `<thinking> 标签未正确闭合 (${thinkingOpen} 个开标签, ${thinkingClose} 个闭标签)`
+          : `<thinking> 标签完整 (${thinkingOpen} 对)`,
+  };
 
-  return results;
+  // 检查 <maintext>
+  const maintextOpen = (messageContent.match(/<maintext>/gi) || []).length;
+  const maintextClose = (messageContent.match(/<\/maintext>/gi) || []).length;
+  const maintext: TagCheckResult = {
+    tag: 'maintext',
+    isValid: maintextOpen > 0 && maintextOpen === maintextClose,
+    isOpen: maintextOpen > 0,
+    isClosed: maintextClose > 0 && maintextOpen === maintextClose,
+    message:
+      maintextOpen === 0
+        ? '缺少 <maintext> 标签'
+        : maintextOpen > maintextClose
+          ? `<maintext> 未闭合 (${maintextOpen} 个开标签, ${maintextClose} 个闭标签)`
+          : maintextOpen < maintextClose
+            ? `多余的 </maintext> 标签 (${maintextOpen} 个开标签, ${maintextClose} 个闭标签)`
+            : `<maintext> 标签完整 (${maintextOpen} 对)`,
+  };
+
+  // 检查 <option>
+  const optionOpen = (messageContent.match(/<option/gi) || []).length;
+  const optionClose = (messageContent.match(/<\/option>/gi) || []).length;
+  const option: TagCheckResult = {
+    tag: 'option',
+    isValid: optionOpen > 0 && optionOpen === optionClose,
+    isOpen: optionOpen > 0,
+    isClosed: optionClose > 0 && optionOpen === optionClose,
+    message:
+      optionOpen === 0
+        ? '缺少 <option> 标签'
+        : optionOpen > optionClose
+          ? `<option> 未闭合 (${optionOpen} 个开标签, ${optionClose} 个闭标签)`
+          : optionOpen < optionClose
+            ? `多余的 </option> 标签 (${optionOpen} 个开标签, ${optionClose} 个闭标签)`
+            : `<option> 标签完整 (${optionOpen} 对)`,
+  };
+
+  // 检查 <sum>（可选；有则须闭合）
+  const sumOpen = (messageContent.match(/<sum>/gi) || []).length;
+  const sumClose = (messageContent.match(/<\/sum>/gi) || []).length;
+  const sum: TagCheckResult = {
+    tag: 'sum',
+    isValid: sumOpen === sumClose,
+    isOpen: sumOpen > 0,
+    isClosed: sumClose > 0 && sumOpen === sumClose,
+    message:
+      sumOpen === 0
+        ? '无 <sum> 标签（可选）'
+        : sumOpen > sumClose
+          ? `<sum> 未闭合 (${sumOpen} 个开标签, ${sumClose} 个闭标签)`
+          : sumOpen < sumClose
+            ? `多余的 </sum> 标签 (${sumOpen} 个开标签, ${sumClose} 个闭标签)`
+            : `<sum> 标签完整 (${sumOpen} 对)`,
+  };
+
+  // 检查 <UpdateVariable>（可选；双 API 时常由第二段合并；有则须闭合）
+  const uvOpen = (messageContent.match(/<UpdateVariable>/gi) || []).length;
+  const uvClose = (messageContent.match(/<\/UpdateVariable>/gi) || []).length;
+  const updateVariable: TagCheckResult = {
+    tag: 'UpdateVariable',
+    isValid: uvOpen === uvClose,
+    isOpen: uvOpen > 0,
+    isClosed: uvClose > 0 && uvOpen === uvClose,
+    message:
+      uvOpen === 0
+        ? '无 <UpdateVariable> 标签（可选）'
+        : uvOpen > uvClose
+          ? `<UpdateVariable> 未闭合 (${uvOpen} 个开标签, ${uvClose} 个闭标签)`
+          : uvOpen < uvClose
+            ? `多余的 </UpdateVariable> 标签 (${uvOpen} 个开标签, ${uvClose} 个闭标签)`
+            : `<UpdateVariable> 标签完整 (${uvOpen} 对)`,
+  };
+
+  return [thinking, maintext, option, sum, updateVariable];
 }
 
 /**

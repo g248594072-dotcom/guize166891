@@ -630,8 +630,8 @@
             <div class="tag-validation-content">
               <p class="validation-intro">AI 输出标签检核结果：</p>
 
-              <div class="ai-output-time" v-if="lastGenerationTime">
-                AI 输出时间：{{ lastGenerationTime }}
+              <div class="ai-output-time" v-if="lastGenerationDurationLabel">
+                本次生成耗时：{{ lastGenerationDurationLabel }}
               </div>
 
               <div class="tag-status-list">
@@ -642,16 +642,19 @@
                   :class="{ 'is-valid': result.isValid, 'is-invalid': !result.isValid }"
                 >
                   <div class="tag-status-header">
-                    <span class="tag-name">&lt;{{ result.tag }}&gt;</span>
+                    <span class="tag-name">
+                      {{ tagCheckLabel(result.tag) }}
+                      <span class="tag-name-code">&lt;{{ result.tag }}&gt;</span>
+                    </span>
                     <span class="tag-badge" :class="{ 'badge-success': result.isValid, 'badge-error': !result.isValid }">
                       {{ result.isValid ? '✓ 正常' : '✗ 异常' }}
                     </span>
                   </div>
-                  <p class="tag-message">{{ result.message }}</p>
+                  <p class="tag-message" :title="result.message">{{ result.message }}</p>
                 </div>
               </div>
 
-              <div class="validation-warning" v-if="tagCheckResults.some(r => !r.isValid && r.tag !== 'sum')">
+              <div class="validation-warning" v-if="tagCheckHasBlockingInvalid(tagCheckResults)">
                 <i class="fa-solid fa-circle-exclamation"></i>
                 <span>存在格式错误的消息可能无法正常显示。建议回退后重试。</span>
               </div>
@@ -678,8 +681,42 @@
             </button>
             <button class="btn-primary btn-continue" @click="onTagDialogConfirmClick">
               <i class="fa-solid fa-check"></i>
-              {{ tagCheckResults.some(r => !r.isValid && r.tag !== 'sum') ? '无视错误确认' : '确认信息' }}
+              {{ tagCheckHasBlockingInvalid(tagCheckResults) ? '无视错误确认' : '确认信息' }}
             </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- 末尾为玩家楼层检测（重载/异常时便于删楼重生成） -->
+    <Transition name="modal">
+      <div
+        v-if="orphanUserFloorDialogOpen"
+        class="modal-overlay orphan-user-floor-overlay"
+        :class="{ dark: isDarkMode, light: !isDarkMode }"
+        @click.self="dismissOrphanUserFloorDialog"
+      >
+        <div class="modal-content orphan-user-floor-modal" :class="{ dark: isDarkMode, light: !isDarkMode }">
+          <div class="modal-header">
+            <h2><i class="fa-solid fa-triangle-exclamation" style="color: #f59e0b;"></i> 末尾楼层为玩家发言</h2>
+            <button type="button" class="close-btn" @click="dismissOrphanUserFloorDialog">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+          <div class="modal-body">
+            <p class="orphan-user-floor-intro">
+              检测到聊天<strong>最后一楼可见消息</strong>不是 AI 回复（玩家消息）。常见于界面异常、重载后未接上生成等情况。
+            </p>
+            <p v-if="orphanUserFloorMessageId != null" class="orphan-user-floor-meta">
+              将删除楼层：<code>#{{ orphanUserFloorMessageId }}</code>
+            </p>
+            <p class="orphan-user-floor-hint">
+              确认后将删除该条玩家发言并刷新正文；请在<strong>酒馆中点击继续生成</strong>（或使用本界面输入后发送）以重新获取 AI 回复。
+            </p>
+          </div>
+          <div class="modal-footer orphan-user-floor-footer">
+            <button type="button" class="btn-secondary" @click="dismissOrphanUserFloorDialog">暂不处理</button>
+            <button type="button" class="btn-primary" @click="confirmOrphanUserFloorDelete">确认删除</button>
           </div>
         </div>
       </div>
@@ -773,10 +810,10 @@ function onTagDialogConfirmClick(): void {
 
 // 布局/缩放设置（来自系统设置）
 const uiLayout = ref({
-  scale: 1,
-  maxWidth: 1400,
+  scale: 0.8,
+  maxWidth: 900,
   heightMode: 'fit' as 'fit' | 'custom',
-  maxHeight: 850,
+  maxHeight: 400,
 });
 
 const rootStyle = computed(() => {
@@ -786,7 +823,7 @@ const rootStyle = computed(() => {
   const isFS = isFullscreen.value;
   const maxWidth = isFS
     ? '100vw' // 全屏时占满视口宽度
-    : `${Math.round(Number(uiLayout.value.maxWidth) || 1400)}px`;
+    : `${Math.round(Number(uiLayout.value.maxWidth) || 900)}px`;
 
   const maxHeight = isFS
     ? '100vh' // 全屏时占满视口高度
@@ -843,13 +880,20 @@ const saveHistory = ref<Array<{ messageId: number; sum: string; turnNumber?: num
 const isTagDialogOpen = ref(false);
 const tagCheckResults = ref<TagCheckResult[]>([]);
 const lastGenerationRaw = ref('');
-const lastGenerationTime = ref('');
+const lastGenerationDurationLabel = ref('');
+/** 本次 AI 请求开始时刻（含主 generate + 双 API 第二段），用于弹窗显示耗时 */
+const aiGenerationStartMs = ref(0);
 const lastUserInputSnapshot = ref('');
 const lastMaintextSnapshot = ref('');
 const lastOptionsSnapshot = ref<Option[]>([]);
 const lastMessageIdSnapshot = ref<number | undefined>(undefined);
 const pendingUserMessageId = ref<number | null>(null);
 const showAiOutput = ref(false); // 是否展开显示AI完整输出
+
+/** 末尾为玩家楼层：弹窗与本次会话内「已忽略」的 message_id */
+const orphanUserFloorDialogOpen = ref(false);
+const orphanUserFloorMessageId = ref<number | null>(null);
+const orphanUserFloorDismissedMid = ref<number | null>(null);
 
 // 长按正文：上下文菜单与编辑
 const contextMenu = ref<{ x: number; y: number } | null>(null);
@@ -904,17 +948,31 @@ function onOutputModeChange(mode: OutputMode) {
   console.log(`🔄 [App] 输出模式变更为: ${mode}`);
 }
 
-function formatAiOutputTime(date: Date): string {
-  try {
-    return date.toLocaleTimeString('zh-CN', {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-    });
-  } catch {
-    return date.toLocaleTimeString();
-  }
+const TAG_CHECK_LABELS: Record<string, string> = {
+  thinking: '思考',
+  maintext: '正文',
+  option: '选项',
+  sum: '摘要',
+  UpdateVariable: '变量',
+};
+
+function tagCheckLabel(tag: string): string {
+  return TAG_CHECK_LABELS[tag] ?? tag;
+}
+
+/** 摘要 / 变量 为可选标签，其「缺失」不算阻塞；未闭合仍 isValid=false 但沿用原逻辑与 sum 一致不纳入「无视错误」提示条 */
+function tagCheckHasBlockingInvalid(results: TagCheckResult[]): boolean {
+  return results.some((r) => !r.isValid && r.tag !== 'sum' && r.tag !== 'UpdateVariable');
+}
+
+function formatGenerationDurationMs(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return '—';
+  if (ms < 1000) return '不足 1 秒';
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)} 秒`;
+  const s = Math.floor(ms / 1000);
+  const m = Math.floor(s / 60);
+  const rs = s % 60;
+  return `${m} 分 ${String(rs).padStart(2, '0')} 秒`;
 }
 
 function onLayoutChange(layout: { scale: number; maxWidth: number; heightMode: 'fit' | 'custom'; maxHeight: number }) {
@@ -1222,6 +1280,87 @@ function loadMessageContent() {
 function refreshMessage() {
   currentMessageId.value = undefined; // 重置 ID 强制刷新
   loadMessageContent();
+  maybeOfferOrphanUserFloorFix();
+}
+
+/**
+ * 若最后一楼可见消息为玩家发言，则视为异常末端（便于重载后修复）
+ */
+function getOrphanUserLatestFloor(): { messageId: number } | null {
+  try {
+    if (typeof getChatMessages !== 'function' || typeof getLastMessageId !== 'function') return null;
+    const lastId = getLastMessageId();
+    if (lastId < 1) return null;
+    const list = getChatMessages(-1, { hide_state: 'unhidden' });
+    const latest = list[0];
+    if (!latest || latest.role !== 'user') return null;
+    if (latest.message_id < 1) return null;
+    return { messageId: latest.message_id };
+  } catch (e) {
+    console.warn('⚠️ [App] 检测末尾玩家楼层失败:', e);
+    return null;
+  }
+}
+
+function maybeOfferOrphanUserFloorFix() {
+  if (gamePhase.value !== GamePhase.GAME) return;
+  if (
+    isGenerating.value ||
+    isRegenerating.value ||
+    isGeneratingOpening.value ||
+    isInitializing.value
+  ) {
+    return;
+  }
+  if (
+    isTagDialogOpen.value ||
+    isModalOpen.value ||
+    variableRerollDialogOpen.value ||
+    variableUpdateDialogOpen.value ||
+    editingMessage.value
+  ) {
+    return;
+  }
+  if (contextMenu.value || orphanUserFloorDialogOpen.value) return;
+
+  const info = getOrphanUserLatestFloor();
+  if (!info) return;
+  if (orphanUserFloorDismissedMid.value === info.messageId) return;
+
+  orphanUserFloorMessageId.value = info.messageId;
+  orphanUserFloorDialogOpen.value = true;
+  console.info('📋 [App] 已提示：末尾楼层为玩家发言 #', info.messageId);
+}
+
+function dismissOrphanUserFloorDialog() {
+  if (orphanUserFloorMessageId.value != null) {
+    orphanUserFloorDismissedMid.value = orphanUserFloorMessageId.value;
+  }
+  orphanUserFloorDialogOpen.value = false;
+}
+
+async function confirmOrphanUserFloorDelete() {
+  const mid = orphanUserFloorMessageId.value;
+  if (mid == null) {
+    orphanUserFloorDialogOpen.value = false;
+    return;
+  }
+  if (typeof deleteChatMessages !== 'function') {
+    toastr.error('deleteChatMessages 不可用');
+    return;
+  }
+  try {
+    await deleteChatMessages([mid], { refresh: 'affected' });
+    orphanUserFloorDismissedMid.value = null;
+    orphanUserFloorDialogOpen.value = false;
+    orphanUserFloorMessageId.value = null;
+    currentMessageId.value = undefined;
+    loadMessageContent();
+    toastr.success('已删除该玩家楼层；请在酒馆中继续生成以获取 AI 回复');
+  } catch (e) {
+    console.error('❌ [App] 删除末尾玩家楼层失败:', e);
+    toastr.error('删除失败: ' + String(e));
+  }
 }
 
 /**
@@ -1388,6 +1527,7 @@ async function sendMessage() {
 
     // 调用 generate 生成 AI 回复
     console.log('⏳ [App] 调用 generate...');
+    aiGenerationStartMs.value = Date.now();
     let result = await generate({
       user_input: content,
       should_stream: true,
@@ -1700,6 +1840,7 @@ async function handleRegenerate() {
       throw new Error('generate 函数不可用');
     }
 
+    aiGenerationStartMs.value = Date.now();
     let result = await generate({
       user_input: userMessageText,
       should_stream: true,
@@ -2219,7 +2360,7 @@ async function rollbackToSnapshot() {
 
     // 4. 清理临时状态
     lastGenerationRaw.value = '';
-    lastGenerationTime.value = '';
+    lastGenerationDurationLabel.value = '';
     pendingUserMessageId.value = null;
     isTagDialogOpen.value = false;
     showAiOutput.value = false; // 重置展开状态
@@ -2235,7 +2376,9 @@ async function rollbackToSnapshot() {
 // 打开标签验证弹窗
 function openTagValidationDialog(rawText: string) {
   lastGenerationRaw.value = rawText;
-  lastGenerationTime.value = formatAiOutputTime(new Date());
+  const elapsed =
+    aiGenerationStartMs.value > 0 ? Date.now() - aiGenerationStartMs.value : NaN;
+  lastGenerationDurationLabel.value = formatGenerationDurationMs(elapsed);
   tagCheckResults.value = validateTags(rawText);
   isTagDialogOpen.value = true;
   showAiOutput.value = false; // 默认折叠“AI 完整输出”
@@ -2275,7 +2418,7 @@ async function onTagDialogIgnore() {
 
   // 清理状态
   lastGenerationRaw.value = '';
-  lastGenerationTime.value = '';
+  lastGenerationDurationLabel.value = '';
   pendingUserMessageId.value = null;
   lastUserInputSnapshot.value = '';
   lastMaintextSnapshot.value = '';
@@ -2326,7 +2469,7 @@ async function onTagDialogRollback() {
     // 清理状态
     pendingUserMessageId.value = null;
     lastGenerationRaw.value = '';
-    lastGenerationTime.value = '';
+    lastGenerationDurationLabel.value = '';
     isTagDialogOpen.value = false;
     isGenerating.value = false;
     isInitializing.value = false;
@@ -2430,8 +2573,8 @@ async function checkGamePhase() {
           // 安全兜底：避免异常数据导致布局极端变窄
           const safeMaxWidth = Number(uiLayout.value.maxWidth);
           if (!Number.isFinite(safeMaxWidth) || safeMaxWidth < 800) {
-            uiLayout.value.maxWidth = 1400; // 给一个合理的默认值
-            console.log('⚠️ [App] 已有游戏：检测到异常maxWidth，已重置为1400');
+            uiLayout.value.maxWidth = 900; // 与设置面板最小宽度一致
+            console.log('⚠️ [App] 已有游戏：检测到异常maxWidth，已重置为900');
           }
         }
       } catch (e) {
@@ -2607,6 +2750,7 @@ async function handleOpeningSubmit(formData: OpeningFormData) {
       }
 
       // 调用 generate
+      aiGenerationStartMs.value = Date.now();
       let result = await generate({
         user_input: userPrompt,
         should_stream: true,
@@ -2678,6 +2822,22 @@ async function handleOpeningSubmit(formData: OpeningFormData) {
 
 // 组件挂载时加载消息并监听事件
 let unsubscribeMessageUpdate: any = null;
+let unsubscribeChatChange: (() => void) | null = null;
+
+watch(
+  () => gamePhase.value,
+  (phase) => {
+    if (phase === GamePhase.GAME) {
+      setTimeout(() => maybeOfferOrphanUserFloorFix(), 500);
+    }
+  },
+);
+
+function onPageShowStaleUserCheck() {
+  if (gamePhase.value === GamePhase.GAME) {
+    setTimeout(() => maybeOfferOrphanUserFloorFix(), 400);
+  }
+}
 
 onMounted(() => {
   // 检查游戏阶段并加载内容
@@ -2694,10 +2854,10 @@ onMounted(() => {
         const safeScale = Number(uiLayout.value.scale);
         const safeMaxWidth = Number(uiLayout.value.maxWidth);
         const safeMaxHeight = Number(uiLayout.value.maxHeight);
-        uiLayout.value.scale = Number.isFinite(safeScale) ? Math.min(1.3, Math.max(0.8, safeScale)) : 1;
+        uiLayout.value.scale = Number.isFinite(safeScale) ? Math.min(1.3, Math.max(0.8, safeScale)) : 0.8;
         // 最小宽度 800：避免变量里写入过小值导致界面缩成一条
-        uiLayout.value.maxWidth = Number.isFinite(safeMaxWidth) ? Math.min(2400, Math.max(800, safeMaxWidth)) : 1400;
-        uiLayout.value.maxHeight = Number.isFinite(safeMaxHeight) ? Math.max(400, safeMaxHeight) : 850;
+        uiLayout.value.maxWidth = Number.isFinite(safeMaxWidth) ? Math.min(2400, Math.max(800, safeMaxWidth)) : 900;
+        uiLayout.value.maxHeight = Number.isFinite(safeMaxHeight) ? Math.max(400, safeMaxHeight) : 400;
       }
     } catch (e) {
       console.warn('⚠️ [App] 读取 uiLayout 设置失败:', e);
@@ -2717,12 +2877,28 @@ onMounted(() => {
         // 如果不在生成中，才刷新（避免覆盖正在流式显示的内容）
         if (!isGenerating.value) {
           loadMessageContent();
+          maybeOfferOrphanUserFloorFix();
         }
       });
     }
   } catch (e) {
     console.warn('⚠️ [App] 无法监听消息事件:', e);
   }
+
+  // 切换聊天文件后重新检测末尾楼层
+  try {
+    if (typeof eventOn === 'function' && typeof tavern_events !== 'undefined') {
+      unsubscribeChatChange = eventOn(tavern_events.CHAT_CHANGED, () => {
+        orphanUserFloorDismissedMid.value = null;
+        orphanUserFloorDialogOpen.value = false;
+        setTimeout(() => maybeOfferOrphanUserFloorFix(), 500);
+      });
+    }
+  } catch (e) {
+    console.warn('⚠️ [App] 无法监听 CHAT_CHANGED:', e);
+  }
+
+  window.addEventListener('pageshow', onPageShowStaleUserCheck);
 
   console.log('✅ [App] 同层前端界面挂载完成');
 });
@@ -2731,8 +2907,12 @@ onUnmounted(() => {
   // 清理事件监听
   document.removeEventListener('fullscreenchange', onFullscreenChange);
   window.removeEventListener('th:copy-to-input', onCopyToInputEvent as EventListener);
+  window.removeEventListener('pageshow', onPageShowStaleUserCheck);
   if (typeof unsubscribeMessageUpdate === 'function') {
     unsubscribeMessageUpdate();
+  }
+  if (typeof unsubscribeChatChange === 'function') {
+    unsubscribeChatChange();
   }
   stopIframeHeightFix?.();
   stopIframeHeightFix = null;
@@ -2744,7 +2924,7 @@ onUnmounted(() => {
   display: flex;
   width: 100%;
   height: var(--ui-max-height, 100%);
-  max-width: var(--ui-max-width, 1400px);
+  max-width: var(--ui-max-width, 900px);
   max-height: var(--ui-max-height, 100%);
   margin: 0 auto;
   overflow: hidden;
@@ -2786,7 +2966,7 @@ onUnmounted(() => {
 .sidebar {
   width: var(--sidebar-width);
   height: 100%;
-  max-height: var(--ui-max-height, 850px);
+  max-height: var(--ui-max-height, 600px);
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -2945,7 +3125,7 @@ onUnmounted(() => {
 .middle-panel {
   width: var(--middle-panel-width);
   height: 100%;
-  max-height: var(--ui-max-height, 850px);
+  max-height: var(--ui-max-height, 600px);
   flex-shrink: 0;
   overflow: hidden;
   box-shadow: 0 0 calc(40px * var(--ui-scale, 1)) rgba(0, 0, 0, 0.3);
@@ -3070,7 +3250,7 @@ onUnmounted(() => {
   z-index: 10;
   overflow: hidden;
   height: 100%;
-  max-height: var(--ui-max-height, 850px);
+  max-height: var(--ui-max-height, 600px);
 }
 
 .dark .main-panel {
@@ -4335,11 +4515,11 @@ onUnmounted(() => {
   50% { opacity: 0.5; }
 }
 
-// Modal
+// Modal（需高于 .middle-panel 手机抽屉 z-index: 60，否则点「编辑」弹窗在抽屉下方看不见）
 .modal-overlay {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  z-index: 80;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4652,65 +4832,122 @@ onUnmounted(() => {
   }
 }
 
+// 末尾玩家楼层提示（叠在标签弹窗之上，避免被挡）
+.orphan-user-floor-overlay {
+  z-index: 10002;
+}
+
+.orphan-user-floor-modal {
+  max-width: 440px;
+  width: 100%;
+}
+
+.orphan-user-floor-intro,
+.orphan-user-floor-hint {
+  font-size: 14px;
+  line-height: 1.55;
+  margin: 0 0 12px;
+  color: #a1a1aa;
+}
+
+.light .orphan-user-floor-intro,
+.light .orphan-user-floor-hint {
+  color: #52525b;
+}
+
+.orphan-user-floor-meta {
+  font-size: 13px;
+  margin: 0 0 12px;
+  color: #e4e4e7;
+
+  code {
+    font-family: ui-monospace, monospace;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.08);
+  }
+}
+
+.light .orphan-user-floor-meta {
+  color: #27272a;
+
+  code {
+    background: rgba(0, 0, 0, 0.06);
+  }
+}
+
+.orphan-user-floor-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
 // 标签验证弹窗样式 - 紧凑设计
 .tag-validation-overlay {
   z-index: 10001;
-  align-items: flex-start; // 更靠上显示，避免遮住底部输入框
+  align-items: flex-start;
   justify-content: center;
-  padding: 16px;
-  padding-top: calc(72px * var(--ui-scale, 1));
+  padding: 8px 10px;
+  padding-top: calc(48px * var(--ui-scale, 1));
 }
 
 .tag-validation-modal {
-  max-width: 420px; // 调整弹窗宽度，使尺寸更接近酒馆对话框
+  max-width: 440px;
   width: 100%;
-  max-height: 85vh; // 限制最大高度
+  max-height: min(78vh, calc(100dvh - 88px));
   overflow-y: auto;
 }
 
 .tag-validation-modal .modal-header {
-  padding: 14px 18px; // 减少 header padding
+  padding: 10px 14px;
 
   h2 {
-    font-size: 16px; // 减小标题字体
+    font-size: 15px;
   }
 }
 
 .tag-validation-modal .modal-body {
-  padding: 14px 18px; // 减少 body padding
-  min-height: auto; // 移除 min-height 限制
+  padding: 10px 14px;
+  min-height: auto;
 }
 
 .tag-validation-modal .modal-footer {
-  padding: 14px 18px; // 减少 footer padding
+  padding: 10px 14px;
 }
 
 .tag-validation-content {
   .validation-intro {
-    font-size: 13px;
+    font-size: 12px;
     color: #a1a1aa;
-    margin-bottom: 6px;
+    margin: 0 0 4px;
+    line-height: 1.35;
   }
 
   .ai-output-time {
-    font-size: 12px;
-    margin-bottom: 12px;
-    font-family: monospace;
+    font-size: 11px;
+    margin-bottom: 8px;
+    font-family: ui-monospace, monospace;
     opacity: 0.95;
     color: #a1a1aa;
   }
 
   .tag-status-list {
-    display: flex;
-    flex-direction: column;
-    gap: 8px; // 减小间距
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+
+    @media (max-width: 380px) {
+      grid-template-columns: 1fr;
+    }
   }
 
   .tag-status-item {
-    padding: 10px 14px; // 减小 padding
+    padding: 6px 8px;
     border-radius: 6px;
     border: 1px solid rgba(255, 255, 255, 0.1);
     background: rgba(255, 255, 255, 0.02);
+    min-width: 0;
 
     &.is-valid {
       border-color: rgba(34, 197, 94, 0.3);
@@ -4725,21 +4962,34 @@ onUnmounted(() => {
 
   .tag-status-header {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
+    gap: 6px;
     margin-bottom: 2px;
   }
 
   .tag-name {
-    font-family: monospace;
-    font-size: 13px; // 减小字体
+    font-size: 12px;
     font-weight: 600;
     color: #e4e4e7;
+    line-height: 1.25;
+    min-width: 0;
+  }
+
+  .tag-name-code {
+    display: block;
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    font-weight: 500;
+    opacity: 0.75;
+    margin-top: 2px;
+    word-break: break-all;
   }
 
   .tag-badge {
-    font-size: 11px; // 减小字体
-    padding: 2px 6px;
+    flex-shrink: 0;
+    font-size: 10px;
+    padding: 2px 5px;
     border-radius: 4px;
     font-weight: 500;
 
@@ -4755,28 +5005,41 @@ onUnmounted(() => {
   }
 
   .tag-message {
-    font-size: 12px; // 减小字体
+    font-size: 11px;
     color: #71717a;
     margin: 0;
-    line-height: 1.4;
+    line-height: 1.35;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
 
   .validation-warning {
-    margin-top: 12px;
-    padding: 10px 12px;
+    margin-top: 8px;
+    padding: 8px 10px;
     border-radius: 6px;
     background: rgba(245, 158, 11, 0.1);
     border: 1px solid rgba(245, 158, 11, 0.2);
     display: flex;
     align-items: flex-start;
-    gap: 8px;
-    font-size: 12px;
+    gap: 6px;
+    font-size: 11px;
     color: #f59e0b;
 
     i {
-      font-size: 12px;
-      margin-top: 2px;
+      font-size: 11px;
+      margin-top: 1px;
     }
+  }
+
+  .ai-output-section {
+    margin-top: 8px;
+  }
+
+  .ai-output-toggle {
+    font-size: 12px;
+    padding: 6px 0;
   }
 }
 
