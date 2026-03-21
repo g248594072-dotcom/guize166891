@@ -2411,10 +2411,18 @@ async function onTagDialogIgnore() {
   mainText.value = finalMaintext;
   options.value = finalOptions;
 
+  const snapshotRaw = lastGenerationRaw.value;
+
   // 静默记录到酒馆楼层（等待写入完成）
-  await recordAssistantMessage(lastGenerationRaw.value);
+  await recordAssistantMessage(snapshotRaw);
   // 修正可能出现的变量套娃，确保前端能从 stat_data 根读取到中文结构
   await normalizeLatestChineseStatData();
+
+  if (isOpeningPhase.value && typeof getLastMessageId === 'function') {
+    const assistantId = getLastMessageId();
+    await refineOpeningAssistantWithSecondaryApi(snapshotRaw, assistantId);
+    await normalizeLatestChineseStatData();
+  }
 
   // 清理状态
   lastGenerationRaw.value = '';
@@ -2491,6 +2499,66 @@ async function onTagDialogRollback() {
   await rollbackToSnapshot();
   isGenerating.value = false;
   showAiOutput.value = false; // 重置展开状态
+}
+
+/**
+ * 开局确认、首条 assistant 已写入后：基于当前楼层已解析的 MVU 再请求一次第二 API，刷新 &lt;UpdateVariable&gt;。
+ * 与进游戏后手动「单独重roll变量」/ 在 MVU 里重试额外模型解析类似，在开局阶段自动完成一轮。
+ */
+async function refineOpeningAssistantWithSecondaryApi(
+  fullMessageUsedForRecord: string,
+  assistantMessageId: number,
+): Promise<void> {
+  try {
+    const { getSecondaryApiConfig, processWithSecondaryApi, isSecondaryApiConfigured } = await import(
+      './utils/apiSettings',
+    );
+    const secondaryApiConfig = await getSecondaryApiConfig();
+    if (!isSecondaryApiConfigured(secondaryApiConfig)) return;
+
+    if (typeof getChatMessages === 'function') {
+      const msgs = getChatMessages(assistantMessageId);
+      if (!msgs?.[0] || msgs[0].role !== 'assistant') {
+        console.warn('⚠️ [App] 开局精炼变量：目标楼层不是 assistant，跳过');
+        return;
+      }
+    }
+
+    const filtered = extractFilteredContent(fullMessageUsedForRecord);
+    const maintext = extractLastTagContent(filtered, 'maintext');
+    if (!maintext.trim()) {
+      console.log('ℹ️ [App] 开局精炼变量：无 maintext，跳过');
+      return;
+    }
+
+    const updateVariable = await processWithSecondaryApi(maintext, secondaryApiConfig);
+    if (!updateVariable?.trim()) return;
+
+    const oldPatch = extractLastTagContent(filtered, 'UpdateVariable');
+    if (oldPatch.trim() === updateVariable.trim()) {
+      console.log('ℹ️ [App] 开局精炼变量：第二 API 与首轮 patch 相同，跳过写回');
+      return;
+    }
+
+    if (typeof setChatMessages !== 'function') return;
+
+    const withoutOld = filtered.replace(/<UpdateVariable>[\s\S]*?<\/UpdateVariable>\s*/gi, '').trim();
+    const updatedMessage = `${withoutOld}\n\n<UpdateVariable>\n${updateVariable.trim()}\n</UpdateVariable>`;
+
+    await setChatMessages([{ message_id: assistantMessageId, message: updatedMessage }], { refresh: 'affected' });
+
+    await waitGlobalInitialized('Mvu');
+    const baseId = Math.max(assistantMessageId - 1, 0);
+    const base = Mvu.getMvuData({ type: 'message', message_id: baseId });
+    const parsed =
+      typeof Mvu?.parseMessage === 'function' ? await Mvu.parseMessage(updatedMessage, base) : null;
+    if (parsed) {
+      await replaceVariables(parsed, { type: 'message', message_id: assistantMessageId });
+    }
+    console.log('✅ [App] 开局精炼变量：已应用第二遍第二 API');
+  } catch (e) {
+    console.warn('⚠️ [App] 开局精炼变量失败，保留首轮解析结果:', e);
+  }
 }
 
 // 静默记录 assistant 消息到酒馆楼层
