@@ -1464,7 +1464,7 @@ async function sendMessage() {
   let streamSubscriptionSuccess = false;
   let isThinkingComplete = false; // 标记是否已完成 thinking 标签的过滤
 
-  // 检测当前输出模式
+  // 检测当前输出模式（正常游戏使用）
   let isDualMode = false;
   let secondaryApiConfig: any = null;
   try {
@@ -1559,7 +1559,7 @@ async function sendMessage() {
     });
     console.log('✅ [App] generate 完成，结果长度:', result?.length || 0);
 
-    // 双API模式：调用第二API处理变量
+    // 双API模式：调用第二API处理变量（正常游戏流程）
     if (isDualMode && result) {
       try {
         const { processWithSecondaryApi } = await import('./utils/apiSettings');
@@ -1872,7 +1872,7 @@ async function handleRegenerate() {
       should_stream: true,
     });
 
-    // 双API模式：调用第二API处理变量
+    // 双API模式：调用第二API处理变量（重roll流程与正常游戏一致）
     if (isDualMode && result && isSecondaryApiConfigured(secondaryApiConfig)) {
       try {
         const { processWithSecondaryApi } = await import('./utils/apiSettings');
