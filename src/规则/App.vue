@@ -11,7 +11,7 @@
     v-else-if="gamePhase === GamePhase.GAME"
     id="app-root"
     class="rule-modifier"
-    :class="{ 'dark': isDarkMode, 'light': !isDarkMode }"
+    :class="{ 'dark': isDarkMode, 'light': !isDarkMode, 'layout-pending': uiLayout.maxHeight === undefined }"
     :style="rootStyle"
   >
     <!-- Sidebar -->
@@ -72,6 +72,7 @@
               <SettingsPanel
                 v-else-if="activeTab === 'settings'"
                 :is-dark-mode="isDarkMode"
+                :ui-layout="uiLayout"
                 @mode-change="onOutputModeChange"
                 @update-worldbook="onUpdateWorldbook"
                 @layout-change="onLayoutChange"
@@ -781,6 +782,8 @@ import {
 } from './utils/gameInitializer';
 import { updateWorldbookEntriesByMode, isSecondaryApiConfigured } from './utils/apiSettings';
 import { startIframeHeightFix } from './utils/iframeHeightFix';
+import type { UiLayoutSettings } from './utils/uiLayoutLimits';
+import { clampMainUiHeightPx } from './utils/uiLayoutLimits';
 
 // 游戏阶段管理
 const gamePhase = ref<GamePhase>(GamePhase.OPENING);
@@ -793,6 +796,8 @@ const openingFormKey = ref(0); // 强制重置 OpeningForm（用于回退/失败
 
 // 宿主会反复把同层 iframe 高度改成很小值（如 72px），需要在进入游戏阶段后兜底保持最小高度。
 let stopIframeHeightFix: (() => void) | null = null;
+/** 避免同值重复 stop/start iframe 兜底导致一帧高度异常 */
+let lastIframeMinHeightApplied: number | null = null;
 
 // 界面状态
 const activeTab = ref<string | null>(null);
@@ -802,11 +807,12 @@ const modalPayload = ref<Record<string, any> | null>(null);
 const isDarkMode = ref(true);
 
 // 布局/缩放设置（来自系统设置）
-const uiLayout = ref({
+// 默认 maxHeight: undefined 避免首帧硬编码 600 闪现；CSS 会用 auto 过渡，等数据水合后再固定
+const uiLayout = ref<Partial<UiLayoutSettings>>({
   scale: 0.8,
   maxWidth: 900,
-  heightMode: 'fit' as 'fit' | 'custom',
-  maxHeight: 400,
+  heightMode: 'fit',
+  maxHeight: undefined,
 });
 
 const rootStyle = computed(() => {
@@ -818,9 +824,13 @@ const rootStyle = computed(() => {
     ? '100vw' // 全屏时占满视口宽度
     : `${Math.round(Number(uiLayout.value.maxWidth) || 900)}px`;
 
+  // 若尚未水合（undefined），CSS 用 auto 避免闪现；水合后用固定值
+  const rawMaxHeight = uiLayout.value.maxHeight;
   const maxHeight = isFS
-    ? '100vh' // 全屏时占满视口高度
-    : '600px';
+    ? '100vh'
+    : rawMaxHeight === undefined
+      ? 'auto'
+      : `${clampMainUiHeightPx(rawMaxHeight)}px`;
 
   return {
     '--ui-scale': String(scale),
@@ -925,15 +935,19 @@ watch(activeTab, (newVal, oldVal) => {
 }, { immediate: true });
 
 watch(
-  gamePhase,
-  (phase) => {
-    if (phase === GamePhase.GAME) {
-      stopIframeHeightFix?.();
-      stopIframeHeightFix = startIframeHeightFix({ minHeightPx: 600 });
-    } else {
+  [gamePhase, () => uiLayout.value.maxHeight],
+  () => {
+    if (gamePhase.value !== GamePhase.GAME) {
+      lastIframeMinHeightApplied = null;
       stopIframeHeightFix?.();
       stopIframeHeightFix = null;
+      return;
     }
+    const px = clampMainUiHeightPx(uiLayout.value.maxHeight);
+    if (lastIframeMinHeightApplied === px && stopIframeHeightFix) return;
+    lastIframeMinHeightApplied = px;
+    stopIframeHeightFix?.();
+    stopIframeHeightFix = startIframeHeightFix({ minHeightPx: px });
   },
   { immediate: true },
 );
@@ -985,7 +999,7 @@ function formatGenerationDurationMs(ms: number): string {
   return `${m} 分 ${String(rs).padStart(2, '0')} 秒`;
 }
 
-function onLayoutChange(layout: { scale: number; maxWidth: number; heightMode: 'fit' | 'custom'; maxHeight: number }) {
+function onLayoutChange(layout: UiLayoutSettings) {
   uiLayout.value = { ...uiLayout.value, ...layout };
 }
 
@@ -2639,9 +2653,35 @@ async function recordAssistantMessage(message: string) {
   }
 }
 
+/** 挂载时唯一入口：从 readGameData 合并 uiLayout 并做安全兜底（开局与游戏中共用，避免重复异步读覆盖） */
+async function loadUiLayoutFromGameData(): Promise<void> {
+  try {
+    const { readGameData } = await import('./utils/variableReader');
+    const gameData = await readGameData();
+    if (!gameData?.player?.settings?.uiLayout) {
+      // 无存档：用兜底固定值 600（用户从未设置过高度时，给个稳定初始值）
+      uiLayout.value.maxHeight = 600;
+      return;
+    }
+    const incoming = gameData.player.settings.uiLayout as Partial<UiLayoutSettings>;
+    uiLayout.value = { ...uiLayout.value, ...incoming };
+    const safeScale = Number(uiLayout.value.scale);
+    const safeMaxWidth = Number(uiLayout.value.maxWidth);
+    const safeMaxHeight = Number(uiLayout.value.maxHeight);
+    uiLayout.value.scale = Number.isFinite(safeScale) ? Math.min(1.3, Math.max(0.8, safeScale)) : 0.8;
+    uiLayout.value.maxWidth = Number.isFinite(safeMaxWidth) ? Math.min(2400, Math.max(800, safeMaxWidth)) : 900;
+    uiLayout.value.maxHeight = clampMainUiHeightPx(safeMaxHeight);
+  } catch (e) {
+    console.warn('⚠️ [App] 读取 uiLayout 设置失败:', e);
+    uiLayout.value.maxHeight = 600; // 出错也给个兜底值，避免 auto 无限撑高
+  }
+}
+
 // 检查游戏阶段
 async function checkGamePhase() {
   try {
+    await loadUiLayoutFromGameData();
+
     const lastMessageId = getLastMessageId();
     console.log('📊 [App] 当前楼层数:', lastMessageId);
 
@@ -2653,23 +2693,6 @@ async function checkGamePhase() {
       // 已有游戏进度，直接进入游戏
       console.log('🎮 [App] 检测到已有游戏，进入游戏界面');
       gamePhase.value = GamePhase.GAME;
-
-      // 已有游戏进度进入时，也做布局安全兜底（防止之前保存了异常值）
-      try {
-        const { readGameData } = await import('./utils/variableReader');
-        const gameData = await readGameData();
-        if (gameData?.player?.settings?.uiLayout) {
-          uiLayout.value = { ...uiLayout.value, ...gameData.player.settings.uiLayout };
-          // 安全兜底：避免异常数据导致布局极端变窄
-          const safeMaxWidth = Number(uiLayout.value.maxWidth);
-          if (!Number.isFinite(safeMaxWidth) || safeMaxWidth < 800) {
-            uiLayout.value.maxWidth = 900; // 与设置面板最小宽度一致
-            console.log('⚠️ [App] 已有游戏：检测到异常maxWidth，已重置为900');
-          }
-        }
-      } catch (e) {
-        console.warn('⚠️ [App] 已有游戏读取布局设置失败:', e);
-      }
 
       // 修正历史遗留的变量套娃：stat_data.stat_data -> stat_data
       await normalizeLatestChineseStatData();
@@ -2929,29 +2952,8 @@ function onPageShowStaleUserCheck() {
 }
 
 onMounted(() => {
-  // 检查游戏阶段并加载内容
-  checkGamePhase();
-
-  // 读取界面布局设置（最大宽高/缩放）
-  (async () => {
-    try {
-      const { readGameData } = await import('./utils/variableReader');
-      const gameData = await readGameData();
-      if (gameData?.player?.settings?.uiLayout) {
-        uiLayout.value = { ...uiLayout.value, ...gameData.player.settings.uiLayout };
-        // 安全兜底：避免异常数据导致布局极端变窄/变扁
-        const safeScale = Number(uiLayout.value.scale);
-        const safeMaxWidth = Number(uiLayout.value.maxWidth);
-        const safeMaxHeight = Number(uiLayout.value.maxHeight);
-        uiLayout.value.scale = Number.isFinite(safeScale) ? Math.min(1.3, Math.max(0.8, safeScale)) : 0.8;
-        // 最小宽度 800：避免变量里写入过小值导致界面缩成一条
-        uiLayout.value.maxWidth = Number.isFinite(safeMaxWidth) ? Math.min(2400, Math.max(800, safeMaxWidth)) : 900;
-        uiLayout.value.maxHeight = Number.isFinite(safeMaxHeight) ? Math.max(400, safeMaxHeight) : 400;
-      }
-    } catch (e) {
-      console.warn('⚠️ [App] 读取 uiLayout 设置失败:', e);
-    }
-  })();
+  // 检查游戏阶段并加载内容（内含唯一一次 loadUiLayoutFromGameData）
+  void checkGamePhase();
 
   // 监听全屏变化事件
   document.addEventListener('fullscreenchange', onFullscreenChange);
@@ -3005,6 +3007,7 @@ onUnmounted(() => {
   }
   stopIframeHeightFix?.();
   stopIframeHeightFix = null;
+  lastIframeMinHeightApplied = null;
 });
 </script>
 
@@ -3020,6 +3023,8 @@ onUnmounted(() => {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   font-size: calc(14px * var(--ui-scale, 1));
   line-height: 1.5;
+  // 布局水合前给个平滑过渡，避免从 auto 到固定值的硬跳
+  transition: opacity 120ms ease, height 120ms ease;
 
   // 全局CSS变量，用于整体UI缩放
   --space-xs: calc(4px * var(--ui-scale, 1));
@@ -3048,6 +3053,12 @@ onUnmounted(() => {
   &.light {
     background: #f4f4f5;
     color: #18181b;
+  }
+
+  // 布局尚未水合：先用最小高度撑住，并微微透明减少视觉存在感
+  &.layout-pending {
+    min-height: 600px;
+    opacity: 0.85;
   }
 }
 

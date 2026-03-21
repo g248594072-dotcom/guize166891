@@ -349,13 +349,13 @@
           </label>
           <div class="range-input-wrapper">
             <input
-              v-model.number="uiLayout.scale"
+              :value="uiLayout.scale"
               type="range"
               min="0.8"
               max="1.3"
               step="0.05"
               class="range-input"
-              @input="saveSettings"
+              @input="onScaleInput"
             />
             <span class="range-value">{{ uiLayout.scale.toFixed(2) }}</span>
           </div>
@@ -369,13 +369,13 @@
           </label>
           <div class="range-input-wrapper">
             <input
-              v-model.number="uiLayout.maxWidth"
+              :value="uiLayout.maxWidth"
               type="range"
               min="900"
               max="1800"
               step="50"
               class="range-input"
-              @input="saveSettings"
+              @input="onMaxWidthInput"
             />
             <span class="range-value">{{ uiLayout.maxWidth }}px</span>
           </div>
@@ -385,9 +385,21 @@
         <div class="form-group">
           <label class="form-label">
             <i class="fa-solid fa-arrows-up-down"></i>
-            高度模式
+            主界面高度（桌面）
           </label>
-          <p class="form-hint">当前版本已固定界面高度（600px），无需切换模式。</p>
+          <div class="range-input-wrapper">
+            <input
+              :value="uiLayout.maxHeight"
+              type="range"
+              :min="UI_MAIN_HEIGHT_MIN_PX"
+              :max="UI_MAIN_HEIGHT_MAX_PX"
+              step="10"
+              class="range-input"
+              @input="onMainHeightInput"
+            />
+            <span class="range-value">{{ uiLayout.maxHeight }}px</span>
+          </div>
+          <p class="form-hint">范围 {{ UI_MAIN_HEIGHT_MIN_PX }}–{{ UI_MAIN_HEIGHT_MAX_PX }} px，全屏时仍占满视口。</p>
         </div>
       </div>
     </div>
@@ -409,9 +421,17 @@ import {
 import type { OutputMode, SecondaryApiConfig } from '../types';
 import { normalizeOpenAiUrl } from '../utils/openaiUrl';
 import { DEFAULT_SECONDARY_API_CONFIG, testSecondaryApiTavernPlug } from '../utils/apiSettings';
+import {
+  type UiLayoutSettings,
+  UI_MAIN_HEIGHT_MIN_PX,
+  UI_MAIN_HEIGHT_MAX_PX,
+  clampMainUiHeightPx,
+} from '../utils/uiLayoutLimits';
 
 const props = defineProps<{
   isDarkMode: boolean;
+  /** 由 App 唯一水合，避免本组件再 readGameData 合并布局导致闪动 */
+  uiLayout: UiLayoutSettings;
 }>();
 
 const emit = defineEmits<{
@@ -470,25 +490,37 @@ const connectionStatus = ref<'success' | 'error' | null>(null);
 const connectionMessage = ref('');
 const showSaveSuccess = ref(false);
 
-type UiLayoutSettings = {
-  scale: number; // 0.8 ~ 1.3
-  maxWidth: number; // px
-  heightMode: 'fit' | 'custom';
-  maxHeight: number; // px (custom)
-};
+function emitLayout(next: UiLayoutSettings) {
+  emit('layoutChange', next);
+}
 
-const uiLayout = ref<UiLayoutSettings>({
-  scale: 0.8,
-  maxWidth: 900,
-  heightMode: 'fit',
-  maxHeight: 400,
-});
+function onScaleInput(e: Event) {
+  const v = Number((e.target as HTMLInputElement).value);
+  const next = { ...props.uiLayout, scale: v };
+  emitLayout(next);
+  void saveSettings(next);
+}
+
+function onMaxWidthInput(e: Event) {
+  const v = Number((e.target as HTMLInputElement).value);
+  const next = { ...props.uiLayout, maxWidth: v };
+  emitLayout(next);
+  void saveSettings(next);
+}
+
+function onMainHeightInput(e: Event) {
+  const v = Number((e.target as HTMLInputElement).value);
+  const next = { ...props.uiLayout, maxHeight: clampMainUiHeightPx(v) };
+  emitLayout(next);
+  void saveSettings(next);
+}
 
 // 从变量存储加载设置
 onMounted(async () => {
   await loadSettings();
 });
 
+/** 仅加载输出模式与第二 API；uiLayout 由 App 水合后经 props 传入，避免竞态闪动 */
 async function loadSettings() {
   try {
     const { readGameData } = await import('../utils/variableReader');
@@ -506,21 +538,14 @@ async function loadSettings() {
         ...gameData.player.settings.secondaryApi,
       };
     }
-
-    // 加载界面布局设置
-    if (gameData.player?.settings?.uiLayout) {
-      uiLayout.value = {
-        ...uiLayout.value,
-        ...gameData.player.settings.uiLayout,
-      };
-    }
   } catch (error) {
     console.warn('加载设置失败:', error);
   }
 }
 
-// 保存设置到变量存储
-async function saveSettings() {
+// 保存设置到变量存储（布局快照由调用方传入，避免 props 尚未同步时写入旧值）
+async function saveSettings(layoutSnapshot?: UiLayoutSettings) {
+  const layout = layoutSnapshot ?? props.uiLayout;
   try {
     const { updateStatData } = await import('../utils/dialogAndVariable');
     updateStatData((stat) => {
@@ -532,12 +557,9 @@ async function saveSettings() {
       }
       stat.player.settings.outputMode = outputMode.value;
       stat.player.settings.secondaryApi = secondaryApi.value;
-      stat.player.settings.uiLayout = uiLayout.value;
+      stat.player.settings.uiLayout = layout;
       return stat;
     });
-
-    // 即时通知父组件应用布局
-    emit('layoutChange', uiLayout.value);
 
     // 显示保存成功提示
     showSaveSuccess.value = true;
