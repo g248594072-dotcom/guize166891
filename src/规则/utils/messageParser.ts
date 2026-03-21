@@ -348,8 +348,59 @@ export function extractFilteredContent(streamText: string): string {
 }
 
 /**
+ * 从后往前配对：最后一个 </maintext> 与其前方最后一个 <maintext> 之间的内容。
+ * 避免前文「1. <maintext>」等未闭合示例与唯一闭标签被非贪婪正则误配成一对。
+ */
+export function extractMaintextByLastClosePair(text: string): string {
+  if (!text) return '';
+
+  const lc = text.toLowerCase();
+  const closeIdx = lc.lastIndexOf('</maintext>');
+  if (closeIdx === -1) return '';
+
+  const openIdx = lc.lastIndexOf('<maintext>', closeIdx);
+  if (openIdx === -1) return '';
+
+  const openSlice = text.slice(openIdx);
+  const openMatch = openSlice.match(/^<maintext>/i);
+  if (!openMatch) return '';
+
+  const innerStart = openIdx + openMatch[0].length;
+  if (innerStart > closeIdx) return '';
+
+  if (!/^<\/maintext>/i.test(text.slice(closeIdx))) return '';
+
+  return text.slice(innerStart, closeIdx).trim();
+}
+
+/**
+ * 将「最后一对」<maintext> 的内部替换为 newInner，保留原有开闭标签写法（含大小写）。
+ * 用于编辑保存，避免只替换到第一对标签。
+ */
+export function replaceLastMaintextInnerContent(fullMessage: string, newInner: string): string {
+  if (!fullMessage) return fullMessage;
+
+  const lc = fullMessage.toLowerCase();
+  const closeIdx = lc.lastIndexOf('</maintext>');
+  if (closeIdx === -1) return fullMessage;
+
+  const openIdx = lc.lastIndexOf('<maintext>', closeIdx);
+  if (openIdx === -1) return fullMessage;
+
+  const openMatch = fullMessage.slice(openIdx).match(/^<maintext>/i);
+  if (!openMatch) return fullMessage;
+
+  const innerStart = openIdx + openMatch[0].length;
+  if (innerStart > closeIdx) return fullMessage;
+
+  if (!/^<\/maintext>/i.test(fullMessage.slice(closeIdx))) return fullMessage;
+
+  return fullMessage.slice(0, innerStart) + newInner + fullMessage.slice(closeIdx);
+}
+
+/**
  * 解析消息中的正文
- * 注意：只提取不在<thinking>或标签内部的<maintext>标签
+ * 注意：先移除 <thinking> / redacted_reasoning，再按最后一对闭标签从后往前取 maintext
  */
 export function parseMaintext(messageContent: string): string {
   if (!messageContent) return '';
@@ -368,12 +419,7 @@ export function parseMaintext(messageContent: string): string {
     cleaned = cleaned.substring(0, redactedStart);
   }
 
-  // 提取最后一个 <maintext> 标签
-  const matches = cleaned.match(/<maintext>([\s\S]*?)<\/maintext>/gi);
-  if (!matches || matches.length === 0) return '';
-  const lastMatch = matches[matches.length - 1];
-  const content = lastMatch.match(/<maintext>([\s\S]*?)<\/maintext>/i);
-  return content ? content[1].trim() : '';
+  return extractMaintextByLastClosePair(cleaned);
 }
 
 /**
@@ -382,7 +428,7 @@ export function parseMaintext(messageContent: string): string {
 export function extractLastSumContent(messageContent: string): string {
   if (!messageContent) return '';
   let cleaned = messageContent.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '');
-  cleaned = cleaned.replace(/<think>[\s\S]*?<\/redacted_reasoning>/gi, '');
+  cleaned = cleaned.replace(/<redacted_reasoning>[\s\S]*?<\/redacted_reasoning>/gi, '');
   const matches = [...cleaned.matchAll(/<sum>([\s\S]*?)<\/sum>/gi)];
   if (matches.length === 0) return '';
   const last = matches[matches.length - 1];

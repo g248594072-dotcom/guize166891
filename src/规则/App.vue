@@ -769,6 +769,7 @@ import {
   isFilteringComplete,
   extractFilteredContent,
   extractLastSumContent,
+  replaceLastMaintextInnerContent,
   type Option,
   type TagCheckResult
 } from './utils/messageParser';
@@ -1551,9 +1552,8 @@ async function sendMessage() {
         if (isSecondaryApiConfigured(secondaryApiConfig)) {
           console.log('🔄 [App] 双API模式：调用第二API处理变量...');
 
-          // 提取 maintext 内容
-          const maintextMatch = result.match(/<maintext>([\s\S]*?)<\/maintext>/i);
-          const maintext = maintextMatch ? maintextMatch[1].trim() : '';
+          // 提取 maintext（与 parseMaintext 一致：最后一对闭标签从后往前配对）
+          const maintext = parseMaintext(extractFilteredContent(result));
 
           if (maintext) {
             const variableUpdate = await processWithSecondaryApi(maintext, secondaryApiConfig);
@@ -1862,8 +1862,7 @@ async function handleRegenerate() {
     if (isDualMode && result && isSecondaryApiConfigured(secondaryApiConfig)) {
       try {
         const { processWithSecondaryApi } = await import('./utils/apiSettings');
-        const maintextMatch = result.match(/<maintext>([\s\S]*?)<\/maintext>/i);
-        const maintext = maintextMatch ? maintextMatch[1].trim() : '';
+        const maintext = parseMaintext(extractFilteredContent(result));
 
         if (maintext) {
           const variableUpdate = await processWithSecondaryApi(maintext, secondaryApiConfig);
@@ -1918,7 +1917,7 @@ async function handleRegenerateVariablesOnly() {
   }
 
   const filtered = extractFilteredContent(info.fullMessage);
-  const maintext = extractLastTagContent(filtered, 'maintext');
+  const maintext = parseMaintext(filtered);
   if (!maintext) {
     toastr.warning('无法重roll变量：未找到 <maintext> 内容');
     contextMenu.value = null;
@@ -2157,8 +2156,8 @@ function handleEdit() {
     return;
   }
 
-  const maintextMatch = info.fullMessage.match(/<maintext>([\s\S]*?)<\/maintext>/i);
-  if (!maintextMatch) {
+  const maintextInner = parseMaintext(info.fullMessage);
+  if (!maintextInner) {
     toastr.warning('无法提取要编辑的正文内容');
     contextMenu.value = null;
     return;
@@ -2168,7 +2167,7 @@ function handleEdit() {
     messageId: info.messageId,
     fullMessage: info.fullMessage,
   };
-  editingText.value = maintextMatch[1].trim();
+  editingText.value = maintextInner;
   contextMenu.value = null;
 }
 
@@ -2209,10 +2208,7 @@ async function handleSaveEdit() {
   try {
     const { messageId, fullMessage } = editingMessage.value;
     const currentText = editingText.value;
-    const updatedMessage = fullMessage.replace(
-      /<maintext>[\s\S]*?<\/maintext>/i,
-      () => `<maintext>${currentText}</maintext>`
-    );
+    const updatedMessage = replaceLastMaintextInnerContent(fullMessage, currentText);
     await setChatMessages(
       [{ message_id: messageId, message: updatedMessage }],
       { refresh: 'affected' }
@@ -2855,8 +2851,7 @@ async function handleOpeningSubmit(formData: OpeningFormData) {
       if (isDualMode && result && isSecondaryApiConfigured(secondaryApiConfig)) {
         try {
           const { processWithSecondaryApi } = await import('./utils/apiSettings');
-          const maintextMatch = result.match(/<maintext>([\s\S]*?)<\/maintext>/i);
-          const maintext = maintextMatch ? maintextMatch[1].trim() : '';
+          const maintext = parseMaintext(extractFilteredContent(result));
 
           if (maintext) {
             const variableUpdate = await processWithSecondaryApi(maintext, secondaryApiConfig);
