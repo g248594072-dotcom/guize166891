@@ -3,7 +3,7 @@
  * 处理完整的游戏回合：玩家输入 → AI生成 → 验证 → 显示
  */
 
-import { parseMaintext, parseOptions, type Option } from './messageParser';
+import { extractLastSumContent, parseMaintext, parseOptions, type Option } from './messageParser';
 import {
   getCurrentOutputMode,
   getSecondaryApiConfig,
@@ -149,9 +149,7 @@ function validateResponse(text: string, isDualMode = false): ValidationResult {
   // 提取 options
   const options = parseOptions(cleaned);
 
-  // 提取 sum 标签
-  const sumMatch = cleaned.match(/<sum>([\s\S]*?)<\/sum>/i);
-  const sum = sumMatch ? sumMatch[1].trim() : '';
+  const sum = extractLastSumContent(cleaned);
 
   // 验证必需内容（标签存在但内容可能为空）
   if (!maintext) {
@@ -332,8 +330,7 @@ async function executeDualApiFlow(prompt: string, generationId: string): Promise
  * 提取 maintext 标签内容
  */
 function extractMaintext(text: string): string {
-  const match = text.match(/<maintext>([\s\S]*?)<\/maintext>/i);
-  return match ? match[1].trim() : '';
+  return parseMaintext(text);
 }
 
 /**
@@ -348,8 +345,7 @@ function extractOptions(text: string): string {
  * 提取 sum 标签内容
  */
 function extractSum(text: string): string {
-  const match = text.match(/<sum>([\s\S]*?)<\/sum>/i);
-  return match ? match[1].trim() : '';
+  return extractLastSumContent(text);
 }
 
 /**

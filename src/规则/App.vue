@@ -647,20 +647,36 @@
                 本次生成耗时：{{ lastGenerationDurationLabel }}
               </div>
 
+              <div class="validation-duplicate-hint" v-if="tagCheckHasDuplicateOpenWarning(tagCheckResults)">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+                <span>开合标签多出一个开标签时，多为预设或前文格式说明里重复写了与输出同形的标签；已按<strong>最后一对</strong>闭合标签解析，一般不影响正常使用。</span>
+              </div>
+
               <div class="tag-status-list">
                 <div
                   v-for="result in tagCheckResults"
                   :key="result.tag"
                   class="tag-status-item"
-                  :class="{ 'is-valid': result.isValid, 'is-invalid': !result.isValid }"
+                  :class="{
+                    'is-valid': result.severity === 'ok',
+                    'is-warning': result.severity === 'warning',
+                    'is-invalid': result.severity === 'error',
+                  }"
                 >
                   <div class="tag-status-header">
                     <span class="tag-name">
                       {{ tagCheckLabel(result.tag) }}
                       <span class="tag-name-code">&lt;{{ result.tag }}&gt;</span>
                     </span>
-                    <span class="tag-badge" :class="{ 'badge-success': result.isValid, 'badge-error': !result.isValid }">
-                      {{ result.isValid ? '✓ 正常' : '✗ 异常' }}
+                    <span
+                      class="tag-badge"
+                      :class="{
+                        'badge-success': result.severity === 'ok',
+                        'badge-warning': result.severity === 'warning',
+                        'badge-error': result.severity === 'error',
+                      }"
+                    >
+                      {{ tagCheckBadgeLabel(result) }}
                     </span>
                   </div>
                   <p class="tag-message" :title="result.message">{{ result.message }}</p>
@@ -752,6 +768,7 @@ import {
   validateTags,
   isFilteringComplete,
   extractFilteredContent,
+  extractLastSumContent,
   type Option,
   type TagCheckResult
 } from './utils/messageParser';
@@ -833,6 +850,8 @@ const modalForm = ref({
 const userInput = ref('');
 const isGenerating = ref(false);
 const isRegenerating = ref(false); // 重 roll 中，用于显示「正在重ROLL请稍等」遮罩与正文虚化
+/** 长按重 ROLL 生成完成后：在标签弹窗「确认」写入楼层后强制刷新一次（避免 messageId 未变导致 loadMessageContent 跳过） */
+const refreshFromRerollAfterTagConfirm = ref(false);
 const streamTextBuffer = ref('');
 
 // 游戏消息相关状态
@@ -935,9 +954,24 @@ function tagCheckLabel(tag: string): string {
   return TAG_CHECK_LABELS[tag] ?? tag;
 }
 
-/** 摘要 / 变量 为可选标签，其「缺失」不算阻塞；未闭合仍 isValid=false 但沿用原逻辑与 sum 一致不纳入「无视错误」提示条 */
+/** 仅 severity 为 error 的正文/思考/选项算阻塞；存疑（warning）不阻塞 */
 function tagCheckHasBlockingInvalid(results: TagCheckResult[]): boolean {
-  return results.some((r) => !r.isValid && r.tag !== 'sum' && r.tag !== 'UpdateVariable');
+  return results.some(
+    (r) =>
+      r.severity === 'error' &&
+      r.tag !== 'sum' &&
+      r.tag !== 'UpdateVariable',
+  );
+}
+
+function tagCheckHasDuplicateOpenWarning(results: TagCheckResult[]): boolean {
+  return results.some((r) => r.severity === 'warning');
+}
+
+function tagCheckBadgeLabel(result: TagCheckResult): string {
+  if (result.severity === 'ok') return '✓ 正常';
+  if (result.severity === 'warning') return '⚠ 存疑';
+  return '✗ 异常';
 }
 
 function formatGenerationDurationMs(ms: number): string {
@@ -1849,9 +1883,11 @@ async function handleRegenerate() {
     const filteredResult = extractFilteredContent(result);
     mainText.value = parseMaintext(filteredResult);
     options.value = parseOptions(filteredResult);
+    refreshFromRerollAfterTagConfirm.value = true;
     openTagValidationDialog(filteredResult);
   } catch (error) {
     console.error('❌ [App] 重 roll 失败:', error);
+    refreshFromRerollAfterTagConfirm.value = false;
     toastr.error('重 roll 失败: ' + String(error));
     loadMessageContent();
   } finally {
@@ -2064,7 +2100,7 @@ async function confirmVariableRerollApply() {
     }
 
     closeVariableRerollDialog();
-    loadMessageContent();
+    refreshMessage();
     toastr.success('变量已应用到当前楼层');
   } catch (e) {
     console.error('❌ [App] 应用变量更新失败:', e);
@@ -2251,11 +2287,11 @@ async function loadSaveHistory() {
       .map(msg => {
         const message = msg.message || '';
         // 提取 <sum> 标签内容
-        const sumMatch = message.match(/<sum>([\s\S]*?)<\/sum>/i);
+        const sumText = extractLastSumContent(message);
         return {
           messageId: msg.message_id,
           turnNumber: Math.floor(msg.message_id / 2),
-          sum: sumMatch ? sumMatch[1].trim() : '',
+          sum: sumText,
           timestamp: new Date(msg.data?.timestamp || Date.now()).toLocaleString()
         };
       })
@@ -2378,6 +2414,7 @@ async function onTagDialogIgnore() {
   // 兜底：确认前再次检查，防止界面出现“空白无提示”
   if (!finalMaintext && finalOptions.length === 0) {
     console.warn('⚠️ [App] 标签确认时检测到空回，自动回退');
+    refreshFromRerollAfterTagConfirm.value = false;
     toastr.error('AI 返回内容为空，已回退到发送前状态');
     await rollbackToSnapshot();
     isTagDialogOpen.value = false;
@@ -2434,6 +2471,10 @@ async function onTagDialogIgnore() {
     }, 500);
 
     toastr.success('游戏初始化完成！');
+  } else if (refreshFromRerollAfterTagConfirm.value) {
+    refreshFromRerollAfterTagConfirm.value = false;
+    refreshMessage();
+    toastr.success('已确认，继续游戏');
   } else {
     loadMessageContent();
     toastr.success('已确认，继续游戏');
@@ -2443,6 +2484,7 @@ async function onTagDialogIgnore() {
 // 处理标签验证弹窗 - 回退
 async function onTagDialogRollback() {
   console.log('⏮️ [App] 用户选择回退');
+  refreshFromRerollAfterTagConfirm.value = false;
 
   // 如果是开局流程，删除已创建的 user 消息并回到开局表单
   if (isOpeningPhase.value) {
@@ -5038,6 +5080,11 @@ onUnmounted(() => {
       border-color: rgba(239, 68, 68, 0.3);
       background: rgba(239, 68, 68, 0.05);
     }
+
+    &.is-warning {
+      border-color: rgba(234, 179, 8, 0.45);
+      background: rgba(234, 179, 8, 0.08);
+    }
   }
 
   .tag-status-header {
@@ -5082,6 +5129,11 @@ onUnmounted(() => {
       background: rgba(239, 68, 68, 0.15);
       color: #ef4444;
     }
+
+    &.badge-warning {
+      background: rgba(234, 179, 8, 0.18);
+      color: #eab308;
+    }
   }
 
   .tag-message {
@@ -5093,6 +5145,26 @@ onUnmounted(() => {
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
+  }
+
+  .validation-duplicate-hint {
+    margin-bottom: 8px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: rgba(234, 179, 8, 0.12);
+    border: 1px solid rgba(234, 179, 8, 0.35);
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    font-size: 11px;
+    color: #eab308;
+    line-height: 1.4;
+
+    i {
+      font-size: 11px;
+      margin-top: 2px;
+      flex-shrink: 0;
+    }
   }
 
   .validation-warning {
@@ -5148,6 +5220,11 @@ onUnmounted(() => {
     &.is-invalid {
       border-color: rgba(239, 68, 68, 0.3);
       background: rgba(239, 68, 68, 0.05);
+    }
+
+    &.is-warning {
+      border-color: rgba(234, 179, 8, 0.45);
+      background: rgba(254, 251, 231, 0.95);
     }
   }
 }
