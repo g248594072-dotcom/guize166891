@@ -124,6 +124,18 @@
         </div>
       </div>
 
+      <!-- 标签确认后写入楼层 / 同步变量时：顶部轻提示，不遮挡正文 -->
+      <div
+        v-if="isVariablePersistInProgress"
+        class="variable-persist-banner"
+        :class="{ dark: isDarkMode, light: !isDarkMode }"
+        role="status"
+        aria-live="polite"
+      >
+        <i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i>
+        <span>正在将本回合写入楼层并同步变量（必要时含额外模型解析），请稍候；暂勿发送新内容。</span>
+      </div>
+
       <div class="game-content">
         <!-- 普通模式：正文 + 选项 -->
         <template v-if="viewMode === 'normal'">
@@ -175,6 +187,7 @@
                     v-for="option in options"
                     :key="option.id"
                     class="option-btn"
+                    :disabled="isGenerating || isVariablePersistInProgress"
                     @click="selectOption(option.id)"
                   >
                     <span class="option-id">{{ option.id }}</span>
@@ -254,13 +267,13 @@
             v-model="userInput"
             placeholder="输入指令或描述..."
             rows="1"
-            :disabled="isGenerating"
+            :disabled="isGenerating || isVariablePersistInProgress"
             @keydown.enter.prevent="sendMessage"
           />
           <button
             id="btn-send-llm"
             class="send-btn"
-            :disabled="isGenerating || !userInput.trim()"
+            :disabled="isGenerating || isVariablePersistInProgress || !userInput.trim()"
             @click="sendMessage"
           >
             <i v-if="isGenerating" class="fa-solid fa-circle-notch fa-spin"></i>
@@ -477,7 +490,7 @@
         <button
           type="button"
           class="context-menu-item"
-          :disabled="isGenerating"
+          :disabled="isGenerating || isVariablePersistInProgress"
           @click="handleRegenerate"
         >
           {{ isGenerating ? '⏳ 处理中...' : '🔄 重roll' }}
@@ -485,7 +498,7 @@
         <button
           type="button"
           class="context-menu-item"
-          :disabled="isGenerating"
+          :disabled="isGenerating || isVariablePersistInProgress"
           @click="handleRegenerateVariablesOnly"
         >
           {{ isGenerating ? '⏳ 处理中...' : '🎲 单独重roll变量' }}
@@ -493,7 +506,7 @@
         <button
           type="button"
           class="context-menu-item"
-          :disabled="isGenerating"
+          :disabled="isGenerating || isVariablePersistInProgress"
           @click="handleEdit"
         >
           ✏️ 修改正文
@@ -679,7 +692,7 @@
               <i class="fa-solid fa-rotate-left"></i>
               回退到发送前
             </button>
-            <button class="btn-primary btn-continue" @click="onTagDialogConfirmClick">
+            <button class="btn-primary btn-continue" @click="void onTagDialogIgnore()">
               <i class="fa-solid fa-check"></i>
               {{ tagCheckHasBlockingInvalid(tagCheckResults) ? '无视错误确认' : '确认信息' }}
             </button>
@@ -755,6 +768,8 @@ import { startIframeHeightFix } from './utils/iframeHeightFix';
 const gamePhase = ref<GamePhase>(GamePhase.OPENING);
 const isInitializing = ref(false);
 const isGeneratingOpening = ref(false); // 开场白生成中（显示加载弹窗）
+/** 标签确认后：写入楼层、MVU 解析、开局第二 API 等进行中；不挡正文，仅顶栏提示并禁止发送 */
+const isVariablePersistInProgress = ref(false);
 const isOpeningPhase = ref(false); // 标志当前是否处于开局流程（用于标签弹窗区分）
 const openingFormKey = ref(0); // 强制重置 OpeningForm（用于回退/失败后取消“开始游戏”转圈）
 
@@ -767,46 +782,6 @@ const isModalOpen = ref(false);
 const modalType = ref('');
 const modalPayload = ref<Record<string, any> | null>(null);
 const isDarkMode = ref(true);
-
-/**
- * 立刻请求全屏（必须在用户点击回调内触发，不能先 await）
- * 用于开局“确认信息”按钮，避免异步流程导致手势上下文丢失。
- */
-function requestFullscreenNow(): void {
-  try {
-    if (document.fullscreenElement) return;
-    const docEl = document.documentElement as any;
-    if (docEl?.requestFullscreen) {
-      // 不要 await，确保仍处于用户手势上下文
-      docEl.requestFullscreen().catch?.(() => {});
-      return;
-    }
-  } catch (e) {
-    // 忽略，继续走降级方案
-  }
-
-  // 降级：尝试对父窗口中本 iframe 进入全屏
-  try {
-    if (window.parent && window.parent !== window) {
-      const parentDoc = window.parent.document;
-      const iframe = parentDoc.querySelector('iframe#' + getIframeName()) as any;
-      if (iframe?.requestFullscreen && !parentDoc.fullscreenElement) {
-        iframe.requestFullscreen().catch?.(() => {});
-      }
-    }
-  } catch (e) {
-    // 忽略
-  }
-}
-
-function onTagDialogConfirmClick(): void {
-  // 方案 A：点击“确认信息”当下立刻尝试全屏（只在开局流程强制）
-  if (isOpeningPhase.value) {
-    requestFullscreenNow();
-  }
-  // 继续原来的确认流程（不要 await，避免影响全屏手势）
-  void onTagDialogIgnore();
-}
 
 // 布局/缩放设置（来自系统设置）
 const uiLayout = ref({
@@ -1308,7 +1283,8 @@ function maybeOfferOrphanUserFloorFix() {
     isGenerating.value ||
     isRegenerating.value ||
     isGeneratingOpening.value ||
-    isInitializing.value
+    isInitializing.value ||
+    isVariablePersistInProgress.value
   ) {
     return;
   }
@@ -1419,7 +1395,7 @@ async function onRecoverLastUserMessage() {
 // 发送消息（同层前端界面核心功能）
 async function sendMessage() {
   const content = userInput.value.trim();
-  if (!content || isGenerating.value) return;
+  if (!content || isGenerating.value || isVariablePersistInProgress.value) return;
 
   console.log('🎮 [App] 发送消息:', content.substring(0, 50) + '...');
 
@@ -1626,6 +1602,7 @@ async function sendMessage() {
 async function selectOption(optionId: string) {
   const option = options.value.find(o => o.id === optionId);
   if (!option) return;
+  if (isVariablePersistInProgress.value) return;
 
   console.log('📝 [App] 选择选项:', optionId, option.text);
 
@@ -1724,7 +1701,8 @@ function onMaintextLongPressStart(e: MouseEvent | TouchEvent) {
     contextMenu.value ||
     !mainText.value ||
     !hasValidMessageId() ||
-    isGenerating.value
+    isGenerating.value ||
+    isVariablePersistInProgress.value
   ) {
     console.log('[长按] 条件不满足，取消', { contextMenu: contextMenu.value, mainText: mainText.value, hasValidId: hasValidMessageId(), isGenerating: isGenerating.value });
     return;
@@ -2412,16 +2390,26 @@ async function onTagDialogIgnore() {
   options.value = finalOptions;
 
   const snapshotRaw = lastGenerationRaw.value;
+  const wasOpeningPhase = isOpeningPhase.value;
 
-  // 静默记录到酒馆楼层（等待写入完成）
-  await recordAssistantMessage(snapshotRaw);
-  // 修正可能出现的变量套娃，确保前端能从 stat_data 根读取到中文结构
-  await normalizeLatestChineseStatData();
+  // 开局：立刻进入主界面以便阅读正文；标签弹窗立即关闭，后续用顶栏轻提示
+  if (wasOpeningPhase) {
+    gamePhase.value = GamePhase.GAME;
+  }
+  isTagDialogOpen.value = false;
+  isVariablePersistInProgress.value = true;
 
-  if (isOpeningPhase.value && typeof getLastMessageId === 'function') {
-    const assistantId = getLastMessageId();
-    await refineOpeningAssistantWithSecondaryApi(snapshotRaw, assistantId);
+  try {
+    await recordAssistantMessage(snapshotRaw);
     await normalizeLatestChineseStatData();
+
+    if (wasOpeningPhase && typeof getLastMessageId === 'function') {
+      const assistantId = getLastMessageId();
+      await refineOpeningAssistantWithSecondaryApi(snapshotRaw, assistantId);
+      await normalizeLatestChineseStatData();
+    }
+  } finally {
+    isVariablePersistInProgress.value = false;
   }
 
   // 清理状态
@@ -2432,25 +2420,21 @@ async function onTagDialogIgnore() {
   lastMaintextSnapshot.value = '';
   lastOptionsSnapshot.value = [];
   lastMessageIdSnapshot.value = undefined;
-  isTagDialogOpen.value = false;
   isGenerating.value = false;
   showAiOutput.value = false; // 重置展开状态
 
-  // 如果是开局流程，进入游戏阶段
-  if (isOpeningPhase.value) {
+  // 如果是开局流程，结束初始化并刷新楼层元数据
+  if (wasOpeningPhase) {
     console.log('🎮 [App] 开局确认，进入游戏主界面...');
-    gamePhase.value = GamePhase.GAME;
     isOpeningPhase.value = false;
     isInitializing.value = false;
 
-    // 加载消息内容
     setTimeout(() => {
       loadMessageContent();
     }, 500);
 
     toastr.success('游戏初始化完成！');
   } else {
-    // 正常流程：刷新当前消息信息，使长按重 roll 使用正确的 messageId / userMessageId
     loadMessageContent();
     toastr.success('已确认，继续游戏');
   }
@@ -3370,6 +3354,34 @@ onUnmounted(() => {
     i { color: #52525b; }
     h2 { color: #18181b; }
   }
+}
+
+.variable-persist-banner {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) calc(20px * var(--ui-scale, 1));
+  font-size: calc(12px * var(--ui-scale, 1));
+  line-height: 1.45;
+  border-bottom: 1px solid transparent;
+
+  i {
+    flex-shrink: 0;
+    font-size: calc(14px * var(--ui-scale, 1));
+  }
+}
+
+.variable-persist-banner.dark {
+  background: rgba(234, 179, 8, 0.12);
+  border-bottom-color: rgba(250, 204, 21, 0.25);
+  color: #fde68a;
+}
+
+.variable-persist-banner.light {
+  background: rgba(251, 191, 36, 0.18);
+  border-bottom-color: rgba(245, 158, 11, 0.35);
+  color: #92400e;
 }
 
 .header-btn {

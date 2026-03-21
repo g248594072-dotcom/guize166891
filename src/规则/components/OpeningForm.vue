@@ -298,16 +298,54 @@
       </div>
     </div>
 
+    <!-- 清除编年史（左下角） -->
+    <button type="button" class="chronicle-clear-btn" @click="clearChronicleDialogOpen = true">
+      <i class="fa-solid fa-eraser"></i>
+      <span>清除编年史</span>
+    </button>
+
     <!-- 主题切换按钮 -->
     <button class="theme-toggle" @click="isDarkMode = !isDarkMode">
       <i :class="isDarkMode ? 'fa-solid fa-sun' : 'fa-solid fa-moon'"></i>
     </button>
+
+    <!-- 清除编年史确认 -->
+    <div
+      v-if="clearChronicleDialogOpen"
+      class="chronicle-dialog-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="chronicle-dialog-title"
+      @click.self="clearChronicleDialogOpen = false"
+    >
+      <div class="chronicle-dialog-panel">
+        <h3 id="chronicle-dialog-title" class="chronicle-dialog-title">清除编年史</h3>
+        <p class="chronicle-dialog-desc">
+          将清空<strong>当前角色卡所绑定世界书</strong>中「编年史」条目的<strong>全部正文</strong>，此操作不可撤销。若无该条目则不会创建或修改其他条目。
+        </p>
+        <div class="chronicle-dialog-actions">
+          <button type="button" class="chronicle-dialog-btn cancel" @click="clearChronicleDialogOpen = false">
+            取消
+          </button>
+          <button
+            type="button"
+            class="chronicle-dialog-btn danger"
+            :disabled="clearChronicleLoading"
+            @click="onConfirmClearChronicle"
+          >
+            <i v-if="clearChronicleLoading" class="fa-solid fa-circle-notch fa-spin"></i>
+            <span v-else>确认清除</span>
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, computed } from 'vue';
 import type { OpeningFormData } from '../types';
+import { clearChronicle } from '../utils/chronicleUpdater';
 
 const emit = defineEmits<{
   (e: 'submit', data: OpeningFormData): void;
@@ -355,6 +393,28 @@ const newCharDesc = ref('');
 
 // 提交状态
 const isSubmitting = ref(false);
+
+const clearChronicleDialogOpen = ref(false);
+const clearChronicleLoading = ref(false);
+
+async function onConfirmClearChronicle() {
+  if (clearChronicleLoading.value) return;
+  clearChronicleLoading.value = true;
+  try {
+    const ok = await clearChronicle();
+    if (ok) {
+      toastr.success('编年史已清空');
+      clearChronicleDialogOpen.value = false;
+    } else {
+      toastr.error('清除失败：当前角色卡未绑定世界书或无法写入世界书');
+    }
+  } catch (e) {
+    console.error('[OpeningForm] clearChronicle:', e);
+    toastr.error('清除失败：' + String(e));
+  } finally {
+    clearChronicleLoading.value = false;
+  }
+}
 
 // 计算属性
 const totalRulesCount = computed(() => {
@@ -1115,10 +1175,123 @@ async function handleSubmit() {
   font-size: 12px;
 }
 
+.chronicle-clear-btn {
+  position: fixed;
+  left: 20px;
+  bottom: 20px;
+  z-index: 50;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  height: 44px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--glass);
+  color: var(--text-soft);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  backdrop-filter: blur(12px);
+  transition: all 0.18s ease;
+
+  i {
+    font-size: 14px;
+    opacity: 0.9;
+  }
+
+  &:hover {
+    color: var(--text);
+    border-color: rgba(255, 255, 255, 0.28);
+    transform: translateY(-1px);
+  }
+}
+
+.chronicle-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+}
+
+.chronicle-dialog-panel {
+  width: 100%;
+  max-width: 400px;
+  padding: 22px 22px 18px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: var(--glass-strong);
+  color: var(--text);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(16px);
+}
+
+.chronicle-dialog-title {
+  margin: 0 0 12px;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.chronicle-dialog-desc {
+  margin: 0 0 20px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text-soft);
+}
+
+.chronicle-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.chronicle-dialog-btn {
+  min-width: 88px;
+  padding: 10px 16px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: var(--glass);
+  color: var(--text);
+  transition: background 0.15s ease, border-color 0.15s ease;
+
+  &.cancel:hover {
+    border-color: rgba(255, 255, 255, 0.22);
+  }
+
+  &.danger {
+    border-color: rgba(220, 60, 60, 0.45);
+    background: rgba(220, 60, 60, 0.18);
+    color: var(--danger);
+
+    &:hover:not(:disabled) {
+      background: rgba(220, 60, 60, 0.28);
+    }
+  }
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+}
+
+.opening-form.light .chronicle-dialog-btn.danger {
+  border-color: rgba(220, 60, 60, 0.35);
+  background: rgba(220, 60, 60, 0.12);
+}
+
 .theme-toggle {
   position: fixed;
   right: 20px;
   bottom: 20px;
+  z-index: 50;
   width: 44px;
   height: 44px;
   border-radius: 14px;
@@ -1187,6 +1360,13 @@ async function handleSubmit() {
   .theme-toggle {
     right: 12px;
     bottom: 12px;
+  }
+
+  .chronicle-clear-btn {
+    left: 12px;
+    bottom: 12px;
+    padding: 0 12px;
+    font-size: 12px;
   }
 }
 </style>
