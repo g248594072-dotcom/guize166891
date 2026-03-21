@@ -2450,11 +2450,9 @@ async function onTagDialogIgnore() {
     await recordAssistantMessage(snapshotRaw);
     await normalizeLatestChineseStatData();
 
-    if (wasOpeningPhase && typeof getLastMessageId === 'function') {
-      const assistantId = getLastMessageId();
-      await refineOpeningAssistantWithSecondaryApi(snapshotRaw, assistantId);
-      await normalizeLatestChineseStatData();
-    }
+    // 注意：开场白不再手动调用 refineOpeningAssistantWithSecondaryApi
+    // 让MVU框架自动触发额外模型解析
+    // 开场白生成时已通过第二API处理变量，此处直接写入楼层即可
   } finally {
     isVariablePersistInProgress.value = false;
   }
