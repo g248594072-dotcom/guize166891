@@ -14,6 +14,11 @@
     :class="{ 'dark': isDarkMode, 'light': !isDarkMode, 'layout-pending': uiLayout.maxHeight === undefined }"
     :style="rootStyle"
   >
+    <!-- Store 加载中 -->
+    <div v-if="!isStoreReady" class="store-loading">
+      <i class="fa-solid fa-circle-notch fa-spin"></i>
+      <span>加载数据中...</span>
+    </div>
     <!-- Sidebar -->
     <nav class="sidebar">
       <div class="sidebar-top">
@@ -784,10 +789,12 @@ import { updateWorldbookEntriesByMode, isSecondaryApiConfigured } from './utils/
 import { startIframeHeightFix } from './utils/iframeHeightFix';
 import type { UiLayoutSettings } from './utils/uiLayoutLimits';
 import { clampMainUiHeightPx } from './utils/uiLayoutLimits';
+import { useDataStore } from './store';
 
 // 游戏阶段管理
 const gamePhase = ref<GamePhase>(GamePhase.OPENING);
 const isInitializing = ref(false);
+const isStoreReady = ref(false); // store 数据是否就绪
 const isGeneratingOpening = ref(false); // 开场白生成中（显示加载弹窗）
 /** 标签确认后：写入楼层、MVU 解析、开局第二 API 等进行中；不挡正文，仅顶栏提示并禁止发送 */
 const isVariablePersistInProgress = ref(false);
@@ -1549,11 +1556,14 @@ async function sendMessage() {
     }
 
     // 先将用户输入写入聊天楼层，便于重 roll 时找到对应的 userMessageId
+    // 发送完整 MVU 格式，统一数据格式
     if (typeof createChatMessages === 'function') {
-      const mvuData = { stat_data: {}, display_data: {}, delta_data: {} };
+      let mvuData = { stat_data: {}, display_data: {}, delta_data: {} };
       try {
         const baseData = Mvu.getMvuData({ type: 'message', message_id: 'latest' });
-        if (baseData) Object.assign(mvuData, baseData);
+        if (baseData) {
+          mvuData = baseData;
+        }
       } catch (e) {
         // 忽略
       }
@@ -2631,31 +2641,29 @@ async function refineOpeningAssistantWithSecondaryApi(
 async function recordAssistantMessage(message: string) {
   try {
     if (typeof createChatMessages === 'function') {
-      // 准备数据
-      const mvuData = { stat_data: {}, display_data: {}, delta_data: {} };
+      // 准备数据 - 使用完整 MVU 格式
+      let finalData = { stat_data: {}, display_data: {}, delta_data: {} };
       let baseData: any = null;
       try {
         baseData = Mvu.getMvuData({ type: 'message', message_id: 'latest' });
-        if (baseData) Object.assign(mvuData, baseData);
+        if (baseData) {
+          finalData = baseData;
+        }
       } catch (e) {
         // 忽略错误
       }
 
       // 关键：解析 <UpdateVariable>，把 JSONPatch 应用到 MVU 数据中
-      let finalData: any = mvuData;
       try {
         await waitGlobalInitialized('Mvu');
         if (typeof Mvu?.parseMessage === 'function' && baseData) {
           const parsed = await Mvu.parseMessage(message, baseData);
           if (parsed && typeof parsed === 'object') {
-            finalData = parsed;
-          } else {
-            finalData = baseData;
+            finalData = parsed;  // 使用解析后的完整 MVU 数据
           }
         }
       } catch (e) {
         console.warn('⚠️ [App] 解析 <UpdateVariable> 失败，将使用原始变量数据写入:', e);
-        finalData = baseData ?? mvuData;
       }
 
       await createChatMessages(
@@ -2663,7 +2671,7 @@ async function recordAssistantMessage(message: string) {
           {
             role: 'assistant',
             message: message,
-            data: finalData,
+            data: finalData,  // 发送完整 MVU 格式
           },
         ],
         { refresh: 'none' },
@@ -2686,7 +2694,7 @@ async function recordAssistantMessage(message: string) {
 /** 挂载时唯一入口：从 store 合并 uiLayout 并做安全兜底（开局与游戏中共用，避免重复异步读覆盖） */
 function loadUiLayoutFromGameData(): void {
   try {
-    const { useDataStore } = import('./store');
+    // 使用静态导入的 useDataStore
     const store = useDataStore();
     // player 数据可能在 MVU 变量中，通过 store.data 访问
     const player = (store.data as any).player;
@@ -2879,11 +2887,14 @@ async function handleOpeningSubmit(formData: OpeningFormData) {
       }
 
       // 先将用户输入写入聊天楼层（便于重 roll）
+      // 发送完整 MVU 格式，统一数据格式
       if (typeof createChatMessages === 'function') {
-        const mvuData = { stat_data: {}, display_data: {}, delta_data: {} };
+        let mvuData = { stat_data: {}, display_data: {}, delta_data: {} };
         try {
           const baseData = Mvu.getMvuData({ type: 'message', message_id: 'latest' });
-          if (baseData) Object.assign(mvuData, baseData);
+          if (baseData) {
+            mvuData = baseData;
+          }
         } catch (e) { /* 忽略 */ }
         await createChatMessages(
           [{ role: 'user', message: userPrompt, data: mvuData }],
@@ -2984,6 +2995,42 @@ function onPageShowStaleUserCheck() {
 }
 
 onMounted(() => {
+  // 等待 store 数据就绪
+  const store = useDataStore();
+  let unwatch: (() => void) | null = null;
+
+  // 先检查一次数据
+  const checkData = () => {
+    const newData = store.data;
+    const hasData = newData && (
+      (newData.角色档案 && Object.keys(newData.角色档案).length > 0) ||
+      (newData.世界规则 && Object.keys(newData.世界规则).length > 0) ||
+      (newData.openingConfig?.selectedRules?.length > 0)
+    );
+    if (hasData) {
+      isStoreReady.value = true;
+      if (unwatch) {
+        unwatch();
+        unwatch = null;
+      }
+      console.log('✅ [App] Store 数据就绪');
+      return true;
+    }
+    return false;
+  };
+
+  // 立即检查一次
+  if (!checkData()) {
+    // 如果数据还没准备好，启动 watch 监听变化
+    unwatch = watch(
+      () => store.data,
+      () => {
+        checkData();
+      },
+      { deep: true }
+    );
+  }
+
   // 检查游戏阶段并加载内容（内含唯一一次 loadUiLayoutFromGameData）
   void checkGamePhase();
 

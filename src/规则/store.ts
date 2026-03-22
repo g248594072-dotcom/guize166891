@@ -23,30 +23,51 @@ export function useCharacters() {
   const store = useDataStore();
   return computed((): CharacterData[] => {
     const chars = store.data.角色档案 || {};
-    return Object.entries(chars).map(([id, char]) => ({
-      id,
-      name: char.姓名,
-      description: char.描写,
-      status: char.状态 === '出场中' ? 'active' : 'inactive',
-      basic: {
-        age: String(char.身体信息.年龄),
-        height: String(char.身体信息.身高),
-        weight: String(char.身体信息.体重),
-        threeSize: char.身体信息.三围,
-        physique: char.身体信息.体质特征,
-      },
-      stats: {
-        affection: char.数值.好感度,
-        fetish: char.数值.性癖开发值,
-        lust: char.数值.发情值,
-      },
-      currentThought: char.当前内心想法,
-      traits: char.性格,
-      fetishes: char.性癖,
-      sensitiveParts: char.敏感部位,
-      hiddenFetish: char.隐藏性癖,
-      currentPhysiologicalDesc: char.当前综合生理描述,
-    }));
+    return Object.entries(chars).map(([id, char]) => {
+      // 支持中文字段和英文字段回退
+      // 如果姓名为空或"未知"，回退到英文字段 name 或 ID
+      console.log('[useCharacters] 处理角色:', id, { 姓名: char.姓名, name: char.name });
+      const name = (char.姓名 && char.姓名 !== '未知' && char.姓名.trim() !== '')
+        ? char.姓名
+        : (char.name || id);
+      console.log('[useCharacters] 计算后的名字:', name);
+      const description = char.描写 || char.description || char.desc || '';
+      const status = char.状态 === '出场中' ? 'active' : 'inactive';
+
+      const currentThought = char.当前内心想法 || char.currentThought || '';
+      const traits = char.性格 || char.traits || [];
+      const fetishes = char.性癖 || char.fetishes || [];
+      const sensitiveParts = char.敏感部位 || char.sensitiveParts || [];
+      const hiddenFetish = char.隐藏性癖 || char.hiddenFetish || '';
+
+      const body = char.身体信息 || {};
+      const stats = char.数值 || {};
+
+      return {
+        id,
+        name,
+        description,
+        status,
+        basic: {
+          age: String(body.年龄 || body.age || ''),
+          height: String(body.身高 || body.height || ''),
+          weight: String(body.体重 || body.weight || ''),
+          threeSize: body.三围 || body.threeSize || '',
+          physique: body.体质特征 || body.physique || '',
+        },
+        stats: {
+          affection: stats.好感度 || stats.affection || char.affection || 0,
+          fetish: stats.性癖开发值 || stats.fetish || char.fetish_dev || char.fetish || 0,
+          lust: stats.发情值 || stats.lust || char.estrus || char.lust || 0,
+        },
+        currentThought,
+        traits,
+        fetishes,
+        sensitiveParts,
+        hiddenFetish,
+        currentPhysiologicalDesc: char.当前综合生理描述 || char.currentPhysiologicalDesc || '',
+      };
+    });
   });
 }
 
@@ -57,14 +78,41 @@ export function useWorldRules() {
   const store = useDataStore();
   return computed((): RuleData[] => {
     const rules = store.data.世界规则 || {};
-    return Object.entries(rules).map(([title, rule]) => ({
-      id: `world-${title}`,
-      title: rule.名称 || title,
-      desc: rule.效果描述,
-      status: rule.状态 === '生效中' ? 'active' : 'inactive',
-      category: 'world',
-      tag: rule.标记,
-    }));
+    const ruleEntries = Object.entries(rules);
+
+    // 如果有世界规则数据，解析并返回
+    if (ruleEntries.length > 0) {
+      return ruleEntries.map(([title, rule]) => {
+        // 支持中文字段和英文字段回退
+        const displayTitle = rule.名称 || rule.name || title;
+        const desc = rule.效果描述 || rule.desc || rule.description || '';
+        const status = rule.状态 === '生效中' || rule.active === true ? 'active' : 'inactive';
+        const tag = rule.标记 || rule.tag;
+
+        return {
+          id: `world-${title}`,
+          title: displayTitle,
+          desc,
+          status,
+          category: 'world' as const,
+          tag,
+        };
+      });
+    }
+
+    // 如果世界规则为空，从 openingConfig.selectedRules 构建
+    const selectedRules = store.data.openingConfig?.selectedRules;
+    if (selectedRules && Array.isArray(selectedRules) && selectedRules.length > 0) {
+      return selectedRules.map((r: any) => ({
+        id: `world-${r.name}`,
+        title: r.name,
+        desc: r.desc || '',
+        status: 'active' as const,
+        category: 'world' as const,
+      }));
+    }
+
+    return [];
   });
 }
 

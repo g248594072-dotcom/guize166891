@@ -43,102 +43,113 @@
           },
           "additionalProperties": {
             "default": {},
-            "type": "object",
-            "properties": {
-              "姓名": {
-                "default": "未知",
-                "type": "string"
-              },
-              "状态": {
-                "default": "出场中",
-                "anyOf": [
-                  {
-                    "type": "string",
-                    "enum": [
-                      "出场中",
-                      "暂时退场"
-                    ]
-                  },
-                  {
-                    "type": "string"
-                  }
-                ]
-              },
-              "描写": {
-                "type": "string"
-              },
-              "当前内心想法": {
-                "type": "string"
-              },
-              "性格": {
-                "default": [],
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "性癖": {
-                "default": [],
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "敏感部位": {
-                "default": [],
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "隐藏性癖": {
-                "type": "string"
-              },
-              "身体信息": {
-                "default": {},
+            "allOf": [
+              {
                 "type": "object",
                 "properties": {
-                  "年龄": {
-                    "default": 17,
-                    "type": "number"
-                  },
-                  "身高": {
-                    "default": 160,
-                    "type": "number"
-                  },
-                  "体重": {
-                    "default": 48,
-                    "type": "number"
-                  },
-                  "三围": {
+                  "姓名": {
                     "default": "未知",
                     "type": "string"
                   },
-                  "体质特征": {
-                    "default": "普通",
+                  "状态": {
+                    "default": "出场中",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "出场中",
+                          "暂时退场"
+                        ]
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "描写": {
+                    "type": "string"
+                  },
+                  "当前内心想法": {
+                    "type": "string"
+                  },
+                  "性格": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "性癖": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "敏感部位": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "隐藏性癖": {
+                    "type": "string"
+                  },
+                  "身体信息": {
+                    "default": {},
+                    "type": "object",
+                    "properties": {
+                      "年龄": {
+                        "default": 17,
+                        "type": "number"
+                      },
+                      "身高": {
+                        "default": 160,
+                        "type": "number"
+                      },
+                      "体重": {
+                        "default": 48,
+                        "type": "number"
+                      },
+                      "三围": {
+                        "default": "未知",
+                        "type": "string"
+                      },
+                      "体质特征": {
+                        "default": "普通",
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "数值": {
+                    "default": {},
+                    "type": "object",
+                    "properties": {
+                      "好感度": {
+                        "type": "number"
+                      },
+                      "性癖开发值": {
+                        "type": "number"
+                      },
+                      "发情值": {
+                        "type": "number"
+                      }
+                    }
+                  },
+                  "当前综合生理描述": {
                     "type": "string"
                   }
                 }
               },
-              "数值": {
-                "default": {},
+              {
                 "type": "object",
-                "properties": {
-                  "好感度": {
-                    "type": "number"
-                  },
-                  "性癖开发值": {
-                    "type": "number"
-                  },
-                  "发情值": {
-                    "type": "number"
-                  }
-                }
-              },
-              "当前综合生理描述": {
-                "type": "string"
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {}
               }
-            }
+            ]
           }
         },
         "元信息": {
@@ -166,7 +177,7 @@
               "type": "number"
             },
             "最近更新时间": {
-              "default": 1774152130473,
+              "default": 1774174263631,
               "type": "number"
             }
           }
@@ -192,67 +203,78 @@
   "$defs": {
     "__schema0": {
       "default": {},
-      "type": "object",
-      "properties": {
-        "名称": {
-          "type": "string"
-        },
-        "效果描述": {
-          "type": "string"
-        },
-        "状态": {
-          "default": "生效中",
-          "anyOf": [
-            {
-              "type": "string",
-              "enum": [
-                "生效中",
-                "已归档"
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "名称": {
+              "type": "string"
+            },
+            "效果描述": {
+              "type": "string"
+            },
+            "状态": {
+              "default": "生效中",
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "生效中",
+                    "已归档"
+                  ]
+                },
+                {
+                  "type": "string"
+                }
               ]
             },
-            {
+            "细分规则": {
+              "default": {},
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "default": {},
+                "type": "object",
+                "properties": {
+                  "描述": {
+                    "type": "string"
+                  },
+                  "状态": {
+                    "default": "生效中",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "生效中",
+                          "已归档"
+                        ]
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ]
+                  }
+                }
+              }
+            },
+            "适用对象": {
+              "type": "string"
+            },
+            "标记": {
               "type": "string"
             }
-          ]
+          }
         },
-        "细分规则": {
-          "default": {},
+        {
           "type": "object",
           "propertyNames": {
             "type": "string"
           },
-          "additionalProperties": {
-            "default": {},
-            "type": "object",
-            "properties": {
-              "描述": {
-                "type": "string"
-              },
-              "状态": {
-                "default": "生效中",
-                "anyOf": [
-                  {
-                    "type": "string",
-                    "enum": [
-                      "生效中",
-                      "已归档"
-                    ]
-                  },
-                  {
-                    "type": "string"
-                  }
-                ]
-              }
-            }
-          }
-        },
-        "适用对象": {
-          "type": "string"
-        },
-        "标记": {
-          "type": "string"
+          "additionalProperties": {}
         }
-      }
+      ]
     }
   }
 }

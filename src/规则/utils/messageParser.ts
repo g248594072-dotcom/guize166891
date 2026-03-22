@@ -462,36 +462,38 @@ export function parseOptions(messageContent: string): Option[] {
     cleaned = cleaned.substring(0, redactedStart);
   }
 
-  const optionPairRe = /<option([^>]*)>([\s\S]*?)<\/option>/gi;
-  const allPairs = [...cleaned.matchAll(optionPairRe)];
-
-  // 带 id 的短标签：若全部为 id 格式，保留全部（多选项）
-  const optionWithIdRegex = /<option id="([^"]+)">([^<]+)<\/option>/g;
+  // 匹配所有带 id 的 <option id="X">...</option> 标签（支持多行内容）
+  const optionWithIdRegex = /<option id="([^"]+)">([\s\S]*?)<\/option>/gi;
   const optionsWithId: Option[] = [];
   let match;
   while ((match = optionWithIdRegex.exec(cleaned)) !== null) {
     optionsWithId.push({
-      id: match[1],
+      id: match[1].trim().toUpperCase(),
       text: match[2].trim(),
     });
   }
 
-  const allPairsAreId =
-    allPairs.length > 0 &&
-    allPairs.every((m) => /id\s*=\s*"/i.test(m[1] ?? ''));
-
-  // 每个 <option> 都是短 id 标签且与总对数一致：无混进大块无 id 选项
-  if (optionsWithId.length > 0 && allPairsAreId && allPairs.length === optionsWithId.length) {
+  // 如果找到带 id 的 option 标签，直接返回（通常是 A、B、C 三个选项）
+  if (optionsWithId.length > 0) {
     return optionsWithId;
   }
 
-  // 否则取最后一对 <option>…</option>（避免前文格式说明里的假 <option> 吞掉正文）
-  const lastPair = allPairs.length ? allPairs[allPairs.length - 1] : null;
-  if (!lastPair) {
+  // 兼容旧格式：匹配所有不带 id 的 <option>...</option> 标签对
+  const optionPairRe = /<option([^>]*)>([\s\S]*?)<\/option>/gi;
+  const allPairs = [...cleaned.matchAll(optionPairRe)];
+
+  // 取最后三个闭合的 <option>…</option> 标签对（通常对应 A/B/C 三个选项）
+  const lastThreePairs = allPairs.slice(-3);
+  const allOptionTexts: string[] = [];
+  for (const pair of lastThreePairs) {
+    const text = (pair[2] ?? '').trim();
+    if (text) allOptionTexts.push(text);
+  }
+  if (allOptionTexts.length === 0) {
     return [];
   }
 
-  const optionText = (lastPair[2] ?? '').trim();
+  const optionText = allOptionTexts.join('\n');
   const lines = optionText.split('\n').map(line => line.trim()).filter(line => line.length > 0);
 
   // 检查是否是 A.、B.、C. 格式
