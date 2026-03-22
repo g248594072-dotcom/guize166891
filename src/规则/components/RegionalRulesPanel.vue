@@ -75,12 +75,12 @@
                 <i class="fa-solid fa-map"></i>
                 <h3>{{ region.name }}</h3>
               </div>
-              <span class="rule-count">{{ activeRules(region).length }} / {{ (region.rules || []).length }} 条</span>
+              <span class="rule-count">{{ activeRulesList(region).length }} / {{ (region.rules || []).length }} 条</span>
               <i class="fa-solid fa-chevron-down header-chevron"></i>
             </button>
             <div v-show="expandedRegions.has(region.name)" class="card-body">
               <div
-                v-for="rule in activeRules(region)"
+                v-for="rule in activeRulesList(region)"
                 :key="rule.id"
                 class="rule-row"
               >
@@ -102,22 +102,14 @@
                   </button>
                 </div>
               </div>
-              <div class="card-footer">
-                <button
-                  class="footer-btn edit"
-                  @click="$emit('openModal', 'add_region_rule', regionPayload(region))"
-                >
-                  <i class="fa-solid fa-plus"></i>
-                  <span>新增规则</span>
-                </button>
-                <button
-                  class="footer-btn delete"
-                  @click="$emit('openModal', 'delete_region', regionPayload(region))"
-                >
-                  <i class="fa-solid fa-trash"></i>
-                  <span>删除</span>
-                </button>
-              </div>
+              <!-- 在区域卡片内新增细分规则入口 -->
+              <button
+                class="add-subrule"
+                @click="$emit('openModal', 'add_regional_rule', regionPayload(region))"
+              >
+                <i class="fa-solid fa-plus"></i>
+                <span>在该区域新增细分规则</span>
+              </button>
             </div>
           </div>
         </div>
@@ -127,23 +119,36 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, watch } from 'vue';
 import type { RegionData, RuleData } from '../types';
-import { readRegionalRules, getRegionalArchivedGrouped } from '../utils/variableReader';
+import { useRegionalRules, useRegionalArchivedGrouped } from '../store';
 import { submitArchiveRegionalRule, submitRestoreRegionalRule } from '../utils/dialogAndVariable';
 
-const regions = ref<RegionData[]>([]);
+const emit = defineEmits<{
+  (e: 'openModal', type: string, payload?: Record<string, any>): void;
+}>();
+
 const isLoading = ref(true);
 const archiveSectionOpen = ref(false);
 const expandedRegions = ref<Set<string>>(new Set());
 
-const archivedGrouped = computed(() => getRegionalArchivedGrouped(regions.value));
+// ⭐ 使用新的响应式 store
+const regions = useRegionalRules();
+const archivedGrouped = useRegionalArchivedGrouped();
 
 const totalArchived = computed(() =>
   archivedGrouped.value.reduce((sum, g) => sum + g.archived.length, 0)
 );
 
-function activeRules(region: RegionData): RuleData[] {
+// 监听数据加载完成
+watch(regions, (val) => {
+  if (val) {
+    isLoading.value = false;
+    console.log('✅ [RegionalRulesPanel] 加载区域规则:', val.length);
+  }
+}, { immediate: true });
+
+function activeRulesList(region: RegionData): RuleData[] {
   return (region.rules || []).filter((r) => r.status === 'active');
 }
 
@@ -170,40 +175,13 @@ function toggleRegion(name: string) {
 
 async function onArchive(regionName: string, rule: RuleData) {
   await submitArchiveRegionalRule(regionName, rule.id, ruleSummary(rule));
-  await loadRegions();
+  // 无需手动刷新，store 会自动更新
 }
 
 async function onRestore(regionName: string, rule: RuleData) {
   await submitRestoreRegionalRule(regionName, rule.id, ruleSummary(rule));
-  await loadRegions();
+  // 无需手动刷新，store 会自动更新
 }
-
-async function loadRegions() {
-  isLoading.value = true;
-  try {
-    regions.value = await readRegionalRules();
-    console.log('✅ [RegionalRulesPanel] 加载区域规则:', regions.value.length);
-  } catch (e) {
-    console.warn('加载区域规则失败', e);
-    regions.value = [];
-  } finally {
-    isLoading.value = false;
-  }
-}
-
-onMounted(() => {
-  loadRegions();
-  if (typeof eventOn === 'function' && typeof tavern_events !== 'undefined') {
-    eventOn(tavern_events.MESSAGE_UPDATED, () => {
-      console.log('🔄 [RegionalRulesPanel] 消息更新，刷新区域...');
-      loadRegions();
-    });
-  }
-});
-
-defineEmits<{
-  (e: 'openModal', type: string, payload?: Record<string, any>): void;
-}>();
 </script>
 
 <style lang="scss" scoped>
@@ -254,20 +232,16 @@ defineEmits<{
 
 .loading-state {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
   padding: 48px 24px;
+  gap: 12px;
   color: #71717a;
-  font-size: 14px;
 
   i {
-    font-size: 20px;
+    font-size: 24px;
   }
-}
-
-:global(.light) .loading-state {
-  color: #a1a1aa;
 }
 
 .empty-state {
@@ -276,67 +250,50 @@ defineEmits<{
   align-items: center;
   justify-content: center;
   padding: 48px 24px;
-  text-align: center;
   gap: 12px;
+  color: #71717a;
+  text-align: center;
 
   i {
-    font-size: 48px;
-    color: #52525b;
+    font-size: 32px;
     opacity: 0.5;
   }
 
-  p {
-    font-size: 16px;
-    font-weight: 500;
-    color: #e4e4e7;
-    margin: 0;
-  }
-
   .hint {
-    font-size: 13px;
-    color: #71717a;
+    font-size: 12px;
+    opacity: 0.7;
   }
 }
 
-:global(.light) .empty-state {
-  i {
-    color: #a1a1aa;
-  }
-
-  p {
-    color: #27272a;
-  }
-
-  .hint {
-    color: #a1a1aa;
-  }
-}
-
-/* 归档区 */
 .archive-section {
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
   overflow: hidden;
 }
 
 :global(.light) .archive-section {
-  border-color: rgba(0, 0, 0, 0.1);
   background: rgba(0, 0, 0, 0.02);
+  border-color: rgba(0, 0, 0, 0.06);
 }
 
 .archive-toggle {
-  width: 100%;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  width: 100%;
   padding: 12px 16px;
-  border: none;
   background: transparent;
+  border: none;
   color: #a1a1aa;
   font-size: 14px;
   cursor: pointer;
-  text-align: left;
+  transition: all 0.2s;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.03);
+    color: #e4e4e7;
+  }
 
   .toggle-icon {
     margin-left: auto;
@@ -348,137 +305,136 @@ defineEmits<{
   }
 }
 
-.archive-content {
-  padding: 0 16px 16px;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+:global(.light) .archive-toggle {
+  color: #71717a;
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.03);
+    color: #27272a;
+  }
 }
 
-:global(.light) .archive-content {
-  border-color: rgba(0, 0, 0, 0.05);
+.archive-content {
+  padding: 8px 16px 16px;
 }
 
 .archive-group {
-  margin-top: 12px;
+  margin-bottom: 12px;
 
-  &:first-child {
-    margin-top: 12px;
+  &:last-child {
+    margin-bottom: 0;
   }
 }
 
 .archive-group-title {
   font-size: 12px;
   color: #71717a;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
+  padding-left: 4px;
 }
 
 .archive-rule-row {
   display: flex;
-  align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 8px 12px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.03);
-  margin-bottom: 4px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+
+  &:last-child {
+    border-bottom: none;
+  }
 }
 
 :global(.light) .archive-rule-row {
-  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.05);
 }
 
 .archive-rule-desc {
-  flex: 1;
   font-size: 13px;
-  color: #d4d4d8;
+  color: #71717a;
+  flex: 1;
+  margin-right: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-:global(.light) .archive-rule-desc {
-  color: #3f3f46;
 }
 
 .restore-btn {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 10px;
+  padding: 4px 8px;
   font-size: 12px;
-  color: #a1a1aa;
-  background: transparent;
-  border: none;
-  border-radius: 6px;
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.2);
+  border-radius: 4px;
   cursor: pointer;
-  flex-shrink: 0;
+  transition: all 0.2s;
 
   &:hover {
-    color: #22c55e;
-    background: rgba(34, 197, 94, 0.1);
+    background: rgba(34, 197, 94, 0.15);
+    border-color: rgba(34, 197, 94, 0.3);
   }
 }
 
-/* 区域卡片 */
 .regions-grid {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 24px;
-
-  @media (min-width: 768px) {
-    grid-template-columns: repeat(2, 1fr);
-  }
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
 }
 
-.region-card-wrap {
-  border-radius: 16px;
+.region-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.02);
 }
 
-:global(.light) .region-card-wrap {
-  border-color: rgba(0, 0, 0, 0.1);
-  background: #fff;
+:global(.light) .region-card {
+  background: rgba(0, 0, 0, 0.02);
+  border-color: rgba(0, 0, 0, 0.06);
 }
 
-.region-card .card-header {
-  width: 100%;
+.card-header {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 16px 20px;
+  width: 100%;
+  padding: 12px 16px;
+  background: transparent;
   border: none;
-  background: rgba(255, 255, 255, 0.02);
-  color: #fff;
-  font-size: 14px;
   cursor: pointer;
-  text-align: left;
+  transition: all 0.2s;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.03);
+  }
 
   .title-group {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 8px;
+    flex: 1;
 
     i {
-      font-size: 20px;
-      color: #a1a1aa;
+      color: #f59e0b;
+      font-size: 16px;
     }
 
     h3 {
-      font-size: 16px;
-      font-weight: 500;
       margin: 0;
+      font-size: 14px;
+      color: #e4e4e7;
     }
   }
 
   .rule-count {
-    margin-left: auto;
     font-size: 12px;
     color: #71717a;
   }
 
   .header-chevron {
-    font-size: 12px;
     color: #71717a;
     transition: transform 0.2s;
   }
@@ -488,29 +444,25 @@ defineEmits<{
   }
 }
 
-:global(.light) .region-card .card-header {
-  background: rgba(0, 0, 0, 0.02);
+:global(.light) .card-header {
+  &:hover {
+    background: rgba(0, 0, 0, 0.03);
+  }
 
   .title-group h3 {
-    color: #18181b;
+    color: #27272a;
   }
 }
 
 .card-body {
-  padding: 16px 20px;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-:global(.light) .card-body {
-  border-color: rgba(0, 0, 0, 0.05);
+  padding: 0 16px 16px;
 }
 
 .rule-row {
   display: flex;
-  align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
-  padding: 10px 0;
+  align-items: center;
+  padding: 8px 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 
   &:last-child {
@@ -523,80 +475,83 @@ defineEmits<{
 }
 
 .rule-desc {
-  flex: 1;
-  font-size: 14px;
+  font-size: 13px;
   color: #a1a1aa;
-  line-height: 1.5;
+  flex: 1;
+  margin-right: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-:global(.light) .rule-desc {
-  color: #71717a;
-}
+.rule-actions {
+  display: flex;
+  gap: 4px;
 
-.rule-actions .action {
-  padding: 6px 10px;
-  border-radius: 8px;
-  border: none;
-  background: transparent;
-  color: #71717a;
-  cursor: pointer;
-  flex-shrink: 0;
+  .action {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 12px;
 
-  &:hover {
-    background: rgba(255, 255, 255, 0.08);
-    color: #e4e4e7;
+    &.edit {
+      color: #60a5fa;
+      background: rgba(96, 165, 250, 0.1);
+
+      &:hover {
+        background: rgba(96, 165, 250, 0.2);
+      }
+    }
+
+    &.archive {
+      color: #f59e0b;
+      background: rgba(245, 158, 11, 0.1);
+
+      &:hover {
+        background: rgba(245, 158, 11, 0.2);
+      }
+    }
   }
 }
 
-:global(.light) .rule-actions .action:hover {
-  background: rgba(0, 0, 0, 0.06);
-  color: #18181b;
-}
-
-.card-footer {
-  padding-top: 12px;
-  margin-top: 8px;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
-  display: flex;
-  gap: 8px;
-}
-
-:global(.light) .card-footer {
-  border-color: rgba(0, 0, 0, 0.05);
-}
-
-.footer-btn {
-  flex: 1;
-  padding: 10px;
-  border-radius: 8px;
-  font-size: 14px;
-  color: #a1a1aa;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  transition: all 0.2s;
+.add-subrule {
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: 8px;
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: #71717a;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px dashed rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
 
   &:hover {
-    color: #fff;
+    color: #e4e4e7;
     background: rgba(255, 255, 255, 0.05);
-  }
-
-  &.delete:hover {
-    color: #ef4444;
-    background: rgba(239, 68, 68, 0.1);
+    border-color: rgba(255, 255, 255, 0.2);
   }
 }
 
-:global(.light) .footer-btn {
-  color: #71717a;
+:global(.light) .add-subrule {
+  background: rgba(0, 0, 0, 0.02);
+  border-color: rgba(0, 0, 0, 0.1);
+  color: #a1a1aa;
 
   &:hover {
-    color: #18181b;
+    color: #27272a;
     background: rgba(0, 0, 0, 0.05);
+    border-color: rgba(0, 0, 0, 0.2);
   }
 }
 </style>

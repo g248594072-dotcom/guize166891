@@ -324,56 +324,65 @@ const displayPhysiologicalDesc = computed(() => {
 });
 const characterStatusText = ref('出场中');
 
-onMounted(async () => {
+onMounted(() => {
   try {
-    const { readCharacters, readPersonalRules } = await import('../utils/variableReader');
-    const characters: CharacterData[] = await readCharacters();
-    const current = characters.find((c) => c.id === props.characterId);
-    if (!current) return;
+    const { useCharacters, usePersonalRules } = import('../store');
+    const characters = useCharacters();
+    const allPersonalRules = usePersonalRules();
 
-    {
-      const n = String(current.name ?? '').trim();
-      savedForm.value.name = n && n !== '未知' && n !== '未命名' ? n : (current.id || defaultName.value);
-    }
+    // 使用 watch 监听数据变化
+    const unwatch = watch(characters, (list) => {
+      if (!list || list.length === 0) return;
 
-    const basic = (current as any).basic || {};
-    if (basic.age) savedForm.value.age = basic.age;
-    if (basic.height) savedForm.value.height = basic.height;
-    if (basic.weight) savedForm.value.weight = basic.weight;
-    if (basic.threeSize) savedForm.value.threeSize = basic.threeSize;
-    if (basic.physique) savedForm.value.physique = basic.physique;
+      const current = list.find((c) => c.id === props.characterId);
+      if (!current) return;
 
-    const stats = (current as any).stats || {};
-    if (typeof stats.affection === 'number') savedForm.value.affection = stats.affection;
-    if (typeof stats.lust === 'number') savedForm.value.lust = stats.lust;
-    if (typeof stats.fetish === 'number') savedForm.value.fetish = stats.fetish;
+      {
+        const n = String(current.name ?? '').trim();
+        savedForm.value.name = n && n !== '未知' && n !== '未命名' ? n : (current.id || defaultName.value);
+      }
 
-    currentExtra.value = {
-      currentThought: (current as any).currentThought,
-      traits: (current as any).traits,
-      fetishes: (current as any).fetishes,
-      sensitiveParts: (current as any).sensitiveParts,
-      hiddenFetish: (current as any).hiddenFetish,
-      physiologicalDesc: (current as any).currentPhysiologicalDesc,
-    };
-    characterStatusText.value = (current as any).status === 'active' ? '出场中' : '暂时退场';
+      const basic = (current as any).basic || {};
+      if (basic.age) savedForm.value.age = basic.age;
+      if (basic.height) savedForm.value.height = basic.height;
+      if (basic.weight) savedForm.value.weight = basic.weight;
+      if (basic.threeSize) savedForm.value.threeSize = basic.threeSize;
+      if (basic.physique) savedForm.value.physique = basic.physique;
 
-    // 受影响规则：先仅从「个人规则」按 target 精确匹配，避免串规则
-    try {
-      const personalRules = await readPersonalRules();
-      const idMatch = props.characterId;
-      const nameMatch = current.name;
-      affectedPersonalRules.value = (personalRules || []).filter((r: any) => {
-        const t = r?.target;
-        if (!t) return false;
-        return t === idMatch || t === nameMatch;
-      });
-    } catch (e) {
-      console.warn('加载个人规则失败', e);
-      affectedPersonalRules.value = [];
-    }
+      const stats = (current as any).stats || {};
+      if (typeof stats.affection === 'number') savedForm.value.affection = stats.affection;
+      if (typeof stats.lust === 'number') savedForm.value.lust = stats.lust;
+      if (typeof stats.fetish === 'number') savedForm.value.fetish = stats.fetish;
 
-    editForm.value = { ...savedForm.value };
+      currentExtra.value = {
+        currentThought: (current as any).currentThought,
+        traits: (current as any).traits,
+        fetishes: (current as any).fetishes,
+        sensitiveParts: (current as any).sensitiveParts,
+        hiddenFetish: (current as any).hiddenFetish,
+        physiologicalDesc: (current as any).currentPhysiologicalDesc,
+      };
+      characterStatusText.value = (current as any).status === 'active' ? '出场中' : '暂时退场';
+
+      // 受影响规则：从个人规则中匹配
+      try {
+        const idMatch = props.characterId;
+        const nameMatch = current.name;
+        affectedPersonalRules.value = (allPersonalRules.value || []).filter((r: any) => {
+          const t = r?.target;
+          if (!t) return false;
+          return t === idMatch || t === nameMatch;
+        });
+      } catch (e) {
+        console.warn('加载个人规则失败', e);
+        affectedPersonalRules.value = [];
+      }
+
+      editForm.value = { ...savedForm.value };
+      
+      // 数据已加载，停止监听
+      unwatch();
+    }, { immediate: true });
   } catch (e) {
     console.warn('加载角色数据失败', e);
   }

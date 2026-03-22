@@ -603,27 +603,28 @@ onMounted(async () => {
 });
 
 /** 仅加载输出模式与第二 API；uiLayout 由 App 水合后经 props 传入，避免竞态闪动 */
-async function loadSettings() {
+function loadSettings() {
   try {
-    const { readGameData } = await import('../utils/variableReader');
-    const gameData = await readGameData();
+    const { useDataStore } = import('../store');
+    const store = useDataStore();
+    const player = (store.data as any).player;
 
     // 加载输出模式
-    if (gameData.player?.settings?.outputMode) {
-      outputMode.value = gameData.player.settings.outputMode;
+    if (player?.settings?.outputMode) {
+      outputMode.value = player.settings.outputMode;
     }
 
     // 加载第二API配置
-    if (gameData.player?.settings?.secondaryApi) {
+    if (player?.settings?.secondaryApi) {
       secondaryApi.value = {
         ...secondaryApi.value,
-        ...gameData.player.settings.secondaryApi,
+        ...player.settings.secondaryApi,
       };
     }
 
     // 加载其他设置（输入行为模式）
-    if (gameData.player?.settings?.other?.inputActionMode) {
-      inputActionMode.value = gameData.player.settings.other.inputActionMode;
+    if (player?.settings?.other?.inputActionMode) {
+      inputActionMode.value = player.settings.other.inputActionMode;
     }
   } catch (error) {
     console.warn('加载设置失败:', error);

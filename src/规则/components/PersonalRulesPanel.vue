@@ -114,17 +114,21 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, watch } from 'vue';
 import type { RuleData } from '../types';
-import { readPersonalRules, groupPersonalRulesByCharacter } from '../utils/variableReader';
+import { usePersonalRulesByCharacter } from '../store';
 import { submitArchivePersonalRule, submitRestorePersonalRule } from '../utils/dialogAndVariable';
 
-const rawList = ref<RuleData[]>([]);
+const emit = defineEmits<{
+  (e: 'openModal', type: string, payload?: Record<string, any>): void;
+}>();
+
 const isLoading = ref(true);
 const archiveSectionOpen = ref(false);
 const expandedGroups = ref<Set<string>>(new Set());
 
-const grouped = computed(() => groupPersonalRulesByCharacter(rawList.value));
+// ⭐ 使用新的响应式 store
+const grouped = usePersonalRulesByCharacter();
 
 const archivedGroups = computed(() =>
   grouped.value.filter((g) => g.archived.length > 0)
@@ -133,6 +137,14 @@ const archivedGroups = computed(() =>
 const totalArchived = computed(() =>
   archivedGroups.value.reduce((sum, g) => sum + g.archived.length, 0)
 );
+
+// 监听数据加载完成
+watch(grouped, (val) => {
+  if (val) {
+    isLoading.value = false;
+    console.log('✅ [PersonalRulesPanel] 加载个人规则:', val.length);
+  }
+}, { immediate: true });
 
 function ruleSummary(rule: RuleData): string {
   if (rule.title && rule.title !== (rule as any).target) return rule.title;
@@ -158,40 +170,13 @@ function toggleGroup(name: string) {
 
 async function onArchive(rule: RuleData, groupName: string) {
   await submitArchivePersonalRule(rule.id, groupName, ruleSummary(rule));
-  await loadRules();
+  // 无需手动刷新，store 会自动更新
 }
 
 async function onRestore(rule: RuleData, groupName: string) {
   await submitRestorePersonalRule(rule.id, groupName, ruleSummary(rule));
-  await loadRules();
+  // 无需手动刷新，store 会自动更新
 }
-
-async function loadRules() {
-  isLoading.value = true;
-  try {
-    rawList.value = await readPersonalRules();
-    console.log('✅ [PersonalRulesPanel] 加载个人规则:', rawList.value.length);
-  } catch (e) {
-    console.warn('加载个人规则失败', e);
-    rawList.value = [];
-  } finally {
-    isLoading.value = false;
-  }
-}
-
-onMounted(() => {
-  loadRules();
-  if (typeof eventOn === 'function' && typeof tavern_events !== 'undefined') {
-    eventOn(tavern_events.MESSAGE_UPDATED, () => {
-      console.log('🔄 [PersonalRulesPanel] 消息更新，刷新规则...');
-      loadRules();
-    });
-  }
-});
-
-defineEmits<{
-  (e: 'openModal', type: string, payload?: Record<string, any>): void;
-}>();
 </script>
 
 <style lang="scss" scoped>
@@ -242,20 +227,16 @@ defineEmits<{
 
 .loading-state {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
   padding: 48px 24px;
+  gap: 12px;
   color: #71717a;
-  font-size: 14px;
 
   i {
-    font-size: 20px;
+    font-size: 24px;
   }
-}
-
-:global(.light) .loading-state {
-  color: #a1a1aa;
 }
 
 .empty-state {
@@ -264,68 +245,50 @@ defineEmits<{
   align-items: center;
   justify-content: center;
   padding: 48px 24px;
-  text-align: center;
   gap: 12px;
+  color: #71717a;
+  text-align: center;
 
   i {
-    font-size: 48px;
-    color: #52525b;
+    font-size: 32px;
     opacity: 0.5;
   }
 
-  p {
-    font-size: 16px;
-    font-weight: 500;
-    color: #e4e4e7;
-    margin: 0;
-  }
-
   .hint {
-    font-size: 13px;
-    color: #71717a;
-    max-width: 280px;
+    font-size: 12px;
+    opacity: 0.7;
   }
 }
 
-:global(.light) .empty-state {
-  i {
-    color: #a1a1aa;
-  }
-
-  p {
-    color: #27272a;
-  }
-
-  .hint {
-    color: #a1a1aa;
-  }
-}
-
-/* 归档区 */
 .archive-section {
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
   overflow: hidden;
 }
 
 :global(.light) .archive-section {
-  border-color: rgba(0, 0, 0, 0.1);
   background: rgba(0, 0, 0, 0.02);
+  border-color: rgba(0, 0, 0, 0.06);
 }
 
 .archive-toggle {
-  width: 100%;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  width: 100%;
   padding: 12px 16px;
-  border: none;
   background: transparent;
+  border: none;
   color: #a1a1aa;
   font-size: 14px;
   cursor: pointer;
-  text-align: left;
+  transition: all 0.2s;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.03);
+    color: #e4e4e7;
+  }
 
   .toggle-icon {
     margin-left: auto;
@@ -337,77 +300,79 @@ defineEmits<{
   }
 }
 
-.archive-content {
-  padding: 0 16px 16px;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+:global(.light) .archive-toggle {
+  color: #71717a;
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.03);
+    color: #27272a;
+  }
 }
 
-:global(.light) .archive-content {
-  border-color: rgba(0, 0, 0, 0.05);
+.archive-content {
+  padding: 8px 16px 16px;
 }
 
 .archive-group {
-  margin-top: 12px;
+  margin-bottom: 12px;
 
-  &:first-child {
-    margin-top: 12px;
+  &:last-child {
+    margin-bottom: 0;
   }
 }
 
 .archive-group-title {
   font-size: 12px;
   color: #71717a;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
+  padding-left: 4px;
 }
 
 .archive-rule-row {
   display: flex;
-  align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 8px 12px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.03);
-  margin-bottom: 4px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+
+  &:last-child {
+    border-bottom: none;
+  }
 }
 
 :global(.light) .archive-rule-row {
-  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.05);
 }
 
 .archive-rule-desc {
-  flex: 1;
   font-size: 13px;
-  color: #d4d4d8;
+  color: #71717a;
+  flex: 1;
+  margin-right: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-:global(.light) .archive-rule-desc {
-  color: #3f3f46;
 }
 
 .restore-btn {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 10px;
+  padding: 4px 8px;
   font-size: 12px;
-  color: #a1a1aa;
-  background: transparent;
-  border: none;
-  border-radius: 6px;
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.2);
+  border-radius: 4px;
   cursor: pointer;
-  flex-shrink: 0;
+  transition: all 0.2s;
 
   &:hover {
-    color: #22c55e;
-    background: rgba(34, 197, 94, 0.1);
+    background: rgba(34, 197, 94, 0.15);
+    border-color: rgba(34, 197, 94, 0.3);
   }
 }
 
-/* 分组卡片 */
 .personal-rules-list {
   display: flex;
   flex-direction: column;
@@ -415,33 +380,51 @@ defineEmits<{
 }
 
 .group-card {
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
   overflow: hidden;
 }
 
 :global(.light) .group-card {
-  border-color: rgba(0, 0, 0, 0.1);
-  background: #fff;
+  background: rgba(0, 0, 0, 0.02);
+  border-color: rgba(0, 0, 0, 0.06);
 }
 
 .group-header {
-  width: 100%;
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 14px 16px;
-  border: none;
+  width: 100%;
+  padding: 12px 16px;
   background: transparent;
-  color: #e4e4e7;
-  font-size: 14px;
+  border: none;
   cursor: pointer;
-  text-align: left;
+  transition: all 0.2s;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  i:first-child {
+    color: #8b5cf6;
+    font-size: 18px;
+  }
+
+  .group-name {
+    flex: 1;
+    font-size: 14px;
+    font-weight: 500;
+    color: #e4e4e7;
+    text-align: left;
+  }
+
+  .group-count {
+    font-size: 12px;
+    color: #71717a;
+  }
 
   .header-chevron {
-    margin-left: auto;
-    font-size: 12px;
     color: #71717a;
     transition: transform 0.2s;
   }
@@ -452,33 +435,24 @@ defineEmits<{
 }
 
 :global(.light) .group-header {
-  color: #18181b;
-}
+  &:hover {
+    background: rgba(0, 0, 0, 0.03);
+  }
 
-.group-name {
-  font-weight: 500;
-}
-
-.group-count {
-  font-size: 12px;
-  color: #71717a;
+  .group-name {
+    color: #27272a;
+  }
 }
 
 .group-body {
   padding: 0 16px 16px;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-:global(.light) .group-body {
-  border-color: rgba(0, 0, 0, 0.05);
 }
 
 .rule-row {
   display: flex;
-  align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
-  padding: 12px 0;
+  align-items: center;
+  padding: 10px 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 
   &:last-child {
@@ -491,48 +465,58 @@ defineEmits<{
 }
 
 .rule-desc {
+  font-size: 13px;
+  color: #a1a1aa;
   flex: 1;
-  font-size: 14px;
-  color: #d4d4d8;
-  line-height: 1.5;
-}
-
-:global(.light) .rule-desc {
-  color: #3f3f46;
+  margin-right: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .rule-actions {
   display: flex;
   gap: 4px;
-  flex-shrink: 0;
-}
 
-.rule-actions .action {
-  padding: 6px 10px;
-  border-radius: 8px;
-  border: none;
-  background: transparent;
-  color: #71717a;
-  cursor: pointer;
-  font-size: 12px;
+  .action {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 12px;
 
-  &:hover {
-    background: rgba(255, 255, 255, 0.08);
-    color: #e4e4e7;
+    &.edit {
+      color: #60a5fa;
+      background: rgba(96, 165, 250, 0.1);
+
+      &:hover {
+        background: rgba(96, 165, 250, 0.2);
+      }
+    }
+
+    &.archive {
+      color: #f59e0b;
+      background: rgba(245, 158, 11, 0.1);
+
+      &:hover {
+        background: rgba(245, 158, 11, 0.2);
+      }
+    }
+
+    &.delete {
+      color: #ef4444;
+      background: rgba(239, 68, 68, 0.1);
+
+      &:hover {
+        background: rgba(239, 68, 68, 0.2);
+      }
+    }
   }
-
-  &.delete:hover {
-    background: rgba(239, 68, 68, 0.15);
-    color: #ef4444;
-  }
-
-  &.archive:hover {
-    color: #a1a1aa;
-  }
-}
-
-:global(.light) .rule-actions .action:hover {
-  background: rgba(0, 0, 0, 0.06);
-  color: #18181b;
 }
 </style>

@@ -1164,9 +1164,9 @@ async function openModal(type: string, payload?: Record<string, any>) {
 
   if ((type === 'edit_character_mind' || type === 'edit_character_fetish') && payload?.characterId) {
     try {
-      const { readCharacters } = await import('./utils/variableReader');
-      const list = await readCharacters();
-      const c: any = (list || []).find((x: any) => x?.id === payload.characterId);
+      const { useCharacters } = await import('./store');
+      const characters = useCharacters();
+      const c: any = (characters.value || []).find((x: any) => x?.id === payload.characterId);
       if (c) {
         modalForm.value.characterPsychThought = String(c.currentThought ?? '');
         modalForm.value.characterPsychTraits = Array.isArray(c.traits) ? c.traits.join('\n') : '';
@@ -2683,17 +2683,19 @@ async function recordAssistantMessage(message: string) {
   }
 }
 
-/** 挂载时唯一入口：从 readGameData 合并 uiLayout 并做安全兜底（开局与游戏中共用，避免重复异步读覆盖） */
-async function loadUiLayoutFromGameData(): Promise<void> {
+/** 挂载时唯一入口：从 store 合并 uiLayout 并做安全兜底（开局与游戏中共用，避免重复异步读覆盖） */
+function loadUiLayoutFromGameData(): void {
   try {
-    const { readGameData } = await import('./utils/variableReader');
-    const gameData = await readGameData();
-    if (!gameData?.player?.settings?.uiLayout) {
+    const { useDataStore } = import('./store');
+    const store = useDataStore();
+    // player 数据可能在 MVU 变量中，通过 store.data 访问
+    const player = (store.data as any).player;
+    if (!player?.settings?.uiLayout) {
       // 无存档：用兜底固定值 600（用户从未设置过高度时，给个稳定初始值）
       uiLayout.value.maxHeight = 600;
       return;
     }
-    const incoming = gameData.player.settings.uiLayout as Partial<UiLayoutSettings>;
+    const incoming = player.settings.uiLayout as Partial<UiLayoutSettings>;
     uiLayout.value = { ...uiLayout.value, ...incoming };
     const safeScale = Number(uiLayout.value.scale);
     const safeMaxWidth = Number(uiLayout.value.maxWidth);

@@ -5,16 +5,17 @@
 
 import type { OtherSettings, InputActionMode } from '../types';
 import { DEFAULT_OTHER_SETTINGS } from '../types';
+import { useDataStore } from '../store';
 
 /**
  * 获取其他设置
  * @returns 其他设置
  */
-export async function getOtherSettings(): Promise<OtherSettings> {
+export function getOtherSettings(): OtherSettings {
   try {
-    const { readGameData } = await import('./variableReader');
-    const gameData = await readGameData();
-    const settings = gameData.player?.settings?.other;
+    const store = useDataStore();
+    const player = (store.data as any).player;
+    const settings = player?.settings?.other;
 
     if (!settings) {
       return { ...DEFAULT_OTHER_SETTINGS };
@@ -34,45 +35,51 @@ export async function getOtherSettings(): Promise<OtherSettings> {
  * @param settings 设置对象
  * @returns 是否成功
  */
-export async function saveOtherSettings(settings: OtherSettings): Promise<boolean> {
+export function saveOtherSettings(settings: OtherSettings): boolean {
   try {
-    const { updateStatData } = await import('./dialogAndVariable');
+    const store = useDataStore();
 
-    updateStatData((stat) => {
-      if (!stat.player) {
-        stat.player = { name: '玩家', settings: {} };
-      }
-      if (!stat.player.settings) {
-        stat.player.settings = {};
-      }
-      stat.player.settings.other = settings;
-      return stat;
-    });
+    if (!(store.data as any).player) {
+      (store.data as any).player = { name: '玩家', settings: {} };
+    }
+    if (!(store.data as any).player.settings) {
+      (store.data as any).player.settings = {};
+    }
+    (store.data as any).player.settings.other = settings;
 
-    console.log('✅ [otherSettings] 其他设置已保存:', settings);
+    console.log('✅ [otherSettings] 设置已保存:', settings);
     return true;
   } catch (error) {
-    console.error('❌ [otherSettings] 保存其他设置失败:', error);
+    console.error('❌ [otherSettings] 保存设置失败:', error);
     return false;
   }
 }
 
 /**
- * 获取输入行为模式
- * @returns 当前输入行为模式
+ * 设置输入行为模式
+ * @param mode 模式：'send' 直接发送，'append' 追加到输入框
+ * @returns 是否成功
  */
-export async function getInputActionMode(): Promise<InputActionMode> {
-  const settings = await getOtherSettings();
+export function setInputActionMode(mode: InputActionMode): boolean {
+  return saveOtherSettings({ inputActionMode: mode });
+}
+
+/**
+ * 获取当前输入行为模式
+ * @returns 当前模式
+ */
+export function getInputActionMode(): InputActionMode {
+  const settings = getOtherSettings();
   return settings.inputActionMode;
 }
 
 /**
- * 设置输入行为模式
- * @param mode 模式
- * @returns 是否成功
+ * 切换输入行为模式
+ * @returns 切换后的模式
  */
-export async function setInputActionMode(mode: InputActionMode): Promise<boolean> {
-  const settings = await getOtherSettings();
-  settings.inputActionMode = mode;
-  return saveOtherSettings(settings);
+export function toggleInputActionMode(): InputActionMode {
+  const current = getInputActionMode();
+  const next = current === 'send' ? 'append' : 'send';
+  setInputActionMode(next);
+  return next;
 }

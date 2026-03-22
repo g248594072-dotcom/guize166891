@@ -61,50 +61,37 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, watch } from 'vue';
 import RuleListItem from './RuleListItem.vue';
 import type { RuleData } from '../types';
-import { readWorldRules } from '../utils/variableReader';
+import { useWorldRules } from '../store';
 import { submitRestoreWorldRule } from '../utils/dialogAndVariable';
 
-const rules = ref<RuleData[]>([]);
+const emit = defineEmits<{
+  (e: 'openModal', type: string, payload?: Record<string, any>): void;
+}>();
+
 const isLoading = ref(true);
 const archiveSectionOpen = ref(false);
+
+// ⭐ 使用新的响应式 store
+const rules = useWorldRules();
 
 const activeRules = computed(() => rules.value.filter((r) => r.status === 'active'));
 const archivedRules = computed(() => rules.value.filter((r) => r.status !== 'active'));
 
-async function loadRules() {
-  isLoading.value = true;
-  try {
-    rules.value = await readWorldRules();
-    console.log('✅ [WorldRulesPanel] 加载世界规则:', rules.value.length);
-  } catch (e) {
-    console.warn('加载世界规则失败', e);
-    rules.value = [];
-  } finally {
+// 监听数据加载完成
+watch(rules, (val) => {
+  if (val) {
     isLoading.value = false;
+    console.log('✅ [WorldRulesPanel] 加载世界规则:', val.length);
   }
-}
+}, { immediate: true });
 
 async function onRestore(rule: RuleData) {
   await submitRestoreWorldRule(rule.id ?? rule.title);
-  await loadRules();
+  // 无需手动刷新，store 会自动更新
 }
-
-onMounted(() => {
-  loadRules();
-  if (typeof eventOn === 'function' && typeof tavern_events !== 'undefined') {
-    eventOn(tavern_events.MESSAGE_UPDATED, () => {
-      console.log('🔄 [WorldRulesPanel] 消息更新，刷新规则...');
-      loadRules();
-    });
-  }
-});
-
-defineEmits<{
-  (e: 'openModal', type: string, payload?: Record<string, any>): void;
-}>();
 </script>
 
 <style lang="scss" scoped>
@@ -155,46 +142,47 @@ defineEmits<{
 
 .loading-state {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
   padding: 48px 24px;
+  gap: 12px;
   color: #71717a;
-  font-size: 14px;
 
   i {
-    font-size: 20px;
+    font-size: 24px;
   }
 }
 
-:global(.light) .loading-state {
-  color: #a1a1aa;
-}
-
 .archive-section {
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
   overflow: hidden;
 }
 
 :global(.light) .archive-section {
-  border-color: rgba(0, 0, 0, 0.1);
   background: rgba(0, 0, 0, 0.02);
+  border-color: rgba(0, 0, 0, 0.06);
 }
 
 .archive-toggle {
-  width: 100%;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  width: 100%;
   padding: 12px 16px;
-  border: none;
   background: transparent;
+  border: none;
   color: #a1a1aa;
   font-size: 14px;
   cursor: pointer;
-  text-align: left;
+  transition: all 0.2s;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.03);
+    color: #e4e4e7;
+  }
 
   .toggle-icon {
     margin-left: auto;
@@ -206,65 +194,67 @@ defineEmits<{
   }
 }
 
-.archive-content {
-  padding: 0 16px 16px;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+:global(.light) .archive-toggle {
+  color: #71717a;
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.03);
+    color: #27272a;
+  }
 }
 
-:global(.light) .archive-content {
-  border-color: rgba(0, 0, 0, 0.05);
+.archive-content {
+  padding: 8px 16px 16px;
 }
 
 .archive-rule-row {
   display: flex;
-  align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 8px 12px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.03);
-  margin-top: 8px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+
+  &:last-child {
+    border-bottom: none;
+  }
 }
 
 :global(.light) .archive-rule-row {
-  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.05);
 }
 
 .archive-rule-desc {
-  flex: 1;
   font-size: 13px;
-  color: #d4d4d8;
+  color: #71717a;
+  flex: 1;
+  margin-right: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-:global(.light) .archive-rule-desc {
-  color: #3f3f46;
 }
 
 .restore-btn {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 10px;
+  padding: 4px 8px;
   font-size: 12px;
-  color: #a1a1aa;
-  background: transparent;
-  border: none;
-  border-radius: 6px;
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.2);
+  border-radius: 4px;
   cursor: pointer;
-  flex-shrink: 0;
+  transition: all 0.2s;
 
   &:hover {
-    color: #22c55e;
-    background: rgba(34, 197, 94, 0.1);
+    background: rgba(34, 197, 94, 0.15);
+    border-color: rgba(34, 197, 94, 0.3);
   }
 }
 
 .rules-list {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 </style>

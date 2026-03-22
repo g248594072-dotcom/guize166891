@@ -111,11 +111,12 @@ export async function updateWorldbookEntriesByMode(mode: OutputMode): Promise<bo
  * 获取当前输出模式
  * @returns 输出模式
  */
-export async function getCurrentOutputMode(): Promise<OutputMode> {
+export function getCurrentOutputMode(): OutputMode {
   try {
-    const { readGameData } = await import('./variableReader');
-    const gameData = await readGameData();
-    return gameData.player?.settings?.outputMode || 'dual';
+    const { useDataStore } = import('../store');
+    const store = useDataStore();
+    const player = (store.data as any).player;
+    return player?.settings?.outputMode || 'dual';
   } catch (error) {
     console.warn('⚠️ [apiSettings] 获取输出模式失败，默认使用双API模式:', error);
     return 'dual';
@@ -126,11 +127,12 @@ export async function getCurrentOutputMode(): Promise<OutputMode> {
  * 获取第二API配置
  * @returns 第二API配置或null
  */
-export async function getSecondaryApiConfig(): Promise<SecondaryApiConfig> {
+export function getSecondaryApiConfig(): SecondaryApiConfig {
   try {
-    const { readGameData } = await import('./variableReader');
-    const gameData = await readGameData();
-    const config = gameData.player?.settings?.secondaryApi;
+    const { useDataStore } = import('../store');
+    const store = useDataStore();
+    const player = (store.data as any).player;
+    const config = player?.settings?.secondaryApi;
 
     if (!config) {
       return { ...DEFAULT_SECONDARY_API_CONFIG };
