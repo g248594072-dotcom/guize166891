@@ -1952,11 +1952,23 @@ async function handleRegenerate() {
 }
 
 function extractLastTagContent(text: string, tag: string): string {
-  const re = new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, 'gi');
-  const matches = Array.from(text.matchAll(re));
-  if (matches.length === 0) return '';
-  const last = matches[matches.length - 1];
-  return (last?.[1] ?? '').trim();
+  if (!text) return '';
+  // 从后往前找：先找最后一个闭合标签，再找它前面最近的开标签
+  const closeTag = `</${tag}>`;
+  const closeIdx = text.toLowerCase().lastIndexOf(closeTag.toLowerCase());
+  if (closeIdx === -1) return '';
+
+  const openTagPattern = new RegExp(`<${tag}(\\s+[^>]*)?>`, 'i');
+  const textBeforeClose = text.slice(0, closeIdx);
+  // 从 closeIdx 往前找最后一个开标签
+  const lastOpenMatch = textBeforeClose.match(new RegExp(`<${tag}(\\s+[^>]*)?>`, 'gi'));
+  if (!lastOpenMatch || lastOpenMatch.length === 0) return '';
+
+  const lastOpenTag = lastOpenMatch[lastOpenMatch.length - 1];
+  const openIdx = textBeforeClose.lastIndexOf(lastOpenTag);
+  if (openIdx === -1) return '';
+
+  return text.slice(openIdx + lastOpenTag.length, closeIdx).trim();
 }
 
 async function handleRegenerateVariablesOnly() {
