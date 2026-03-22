@@ -965,6 +965,8 @@ function applyOpeningPreset(p: OpeningPreset) {
   applyPresetPayload(p.payload);
   presetPickerOpen.value = false;
   toastr.success(`已应用预设：${p.name}`);
+  // 应用预设后直接跳转到确认页（最后一页）
+  goToPage('confirm');
 }
 
 function removePreset(id: string) {

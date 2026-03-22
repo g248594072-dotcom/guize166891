@@ -1,10 +1,40 @@
 <template>
   <div class="settings-panel" :class="{ dark: isDarkMode, light: !isDarkMode }">
-    <div class="settings-section">
-      <h3 class="section-title">
-        <i class="fa-solid fa-robot"></i>
-        输出模式设置
-      </h3>
+    <!-- 标签页切换 -->
+    <div class="tabs-header">
+      <button
+        class="tab-button"
+        :class="{ active: activeTab === 'api', dark: isDarkMode, light: !isDarkMode }"
+        @click="activeTab = 'api'"
+      >
+        <i class="fa-solid fa-server"></i>
+        <span>API设置</span>
+      </button>
+      <button
+        class="tab-button"
+        :class="{ active: activeTab === 'ui', dark: isDarkMode, light: !isDarkMode }"
+        @click="activeTab = 'ui'"
+      >
+        <i class="fa-solid fa-up-right-and-down-left-from-center"></i>
+        <span>界面尺寸</span>
+      </button>
+      <button
+        class="tab-button"
+        :class="{ active: activeTab === 'other', dark: isDarkMode, light: !isDarkMode }"
+        @click="activeTab = 'other'"
+      >
+        <i class="fa-solid fa-gear"></i>
+        <span>其他</span>
+      </button>
+    </div>
+
+    <!-- API设置标签页 -->
+    <div v-show="activeTab === 'api'" class="tab-content">
+      <div class="settings-section">
+        <h3 class="section-title">
+          <i class="fa-solid fa-robot"></i>
+          输出模式设置
+        </h3>
 
       <div class="mode-intro">
         <p class="intro-text">选择AI生成方式，根据你的需求优化性能和输出质量。</p>
@@ -333,7 +363,10 @@
         </div>
       </div>
     </div>
+    </div>
 
+    <!-- 界面尺寸标签页 -->
+    <div v-show="activeTab === 'ui'" class="tab-content">
     <!-- 界面尺寸/缩放（响应式 + 桌面适配） -->
     <div class="settings-section layout-section">
       <h3 class="section-title">
@@ -349,13 +382,13 @@
           </label>
           <div class="range-input-wrapper">
             <input
-              v-model.number="uiLayout.scale"
+              :value="uiLayout.scale"
               type="range"
               min="0.8"
               max="1.3"
               step="0.05"
               class="range-input"
-              @input="saveSettings"
+              @input="onScaleInput"
             />
             <span class="range-value">{{ uiLayout.scale.toFixed(2) }}</span>
           </div>
@@ -369,13 +402,13 @@
           </label>
           <div class="range-input-wrapper">
             <input
-              v-model.number="uiLayout.maxWidth"
+              :value="uiLayout.maxWidth"
               type="range"
               min="900"
               max="1800"
               step="50"
               class="range-input"
-              @input="saveSettings"
+              @input="onMaxWidthInput"
             />
             <span class="range-value">{{ uiLayout.maxWidth }}px</span>
           </div>
@@ -385,10 +418,64 @@
         <div class="form-group">
           <label class="form-label">
             <i class="fa-solid fa-arrows-up-down"></i>
-            高度模式
+            主界面高度（桌面）
           </label>
-          <p class="form-hint">当前版本已固定界面高度（600px），无需切换模式。</p>
+          <div class="range-input-wrapper">
+            <input
+              :value="uiLayout.maxHeight"
+              type="range"
+              :min="UI_MAIN_HEIGHT_MIN_PX"
+              :max="UI_MAIN_HEIGHT_MAX_PX"
+              step="10"
+              class="range-input"
+              @input="onMainHeightInput"
+            />
+            <span class="range-value">{{ uiLayout.maxHeight }}px</span>
+          </div>
+          <p class="form-hint">范围 {{ UI_MAIN_HEIGHT_MIN_PX }}–{{ UI_MAIN_HEIGHT_MAX_PX }} px，全屏时仍占满视口。</p>
         </div>
+      </div>
+    </div>
+    </div>
+
+    <!-- 其他设置标签页 -->
+    <div v-show="activeTab === 'other'" class="tab-content">
+      <div class="settings-section">
+        <h3 class="section-title">
+          <i class="fa-solid fa-keyboard"></i>
+          选项栏行为
+        </h3>
+
+        <div class="simple-toggle">
+          <label class="toggle-item" :class="{ active: inputActionMode === 'append', dark: isDarkMode, light: !isDarkMode }">
+            <input
+              type="radio"
+              name="inputActionMode"
+              value="append"
+              v-model="inputActionMode"
+              @change="onInputActionModeChange"
+            />
+            <span class="toggle-label">
+              <i class="fa-solid fa-copy"></i>
+              复制到输入框
+            </span>
+          </label>
+          <label class="toggle-item" :class="{ active: inputActionMode === 'send', dark: isDarkMode, light: !isDarkMode }">
+            <input
+              type="radio"
+              name="inputActionMode"
+              value="send"
+              v-model="inputActionMode"
+              @change="onInputActionModeChange"
+            />
+            <span class="toggle-label">
+              <i class="fa-solid fa-paper-plane"></i>
+              直接发送
+            </span>
+          </label>
+        </div>
+
+        <p class="setting-hint">控制点击选项栏选项后的行为</p>
       </div>
     </div>
 
@@ -406,12 +493,21 @@ import {
   getTavernMainOpenAiCredentials,
   getTavernMainOpenAiEndpoint,
 } from '../utils/tavernMainConnection';
-import type { OutputMode, SecondaryApiConfig } from '../types';
+import type { OutputMode, SecondaryApiConfig, InputActionMode } from '../types';
 import { normalizeOpenAiUrl } from '../utils/openaiUrl';
 import { DEFAULT_SECONDARY_API_CONFIG, testSecondaryApiTavernPlug } from '../utils/apiSettings';
+import {
+  type UiLayoutSettings,
+  UI_MAIN_HEIGHT_MIN_PX,
+  UI_MAIN_HEIGHT_MAX_PX,
+  clampMainUiHeightPx,
+} from '../utils/uiLayoutLimits';
+import { getOtherSettings, saveOtherSettings } from '../utils/otherSettings';
 
 const props = defineProps<{
   isDarkMode: boolean;
+  /** 由 App 唯一水合，避免本组件再 readGameData 合并布局导致闪动 */
+  uiLayout: UiLayoutSettings;
 }>();
 
 const emit = defineEmits<{
@@ -420,9 +516,15 @@ const emit = defineEmits<{
   (e: 'layoutChange', layout: UiLayoutSettings): void;
 }>();
 
+// 标签页状态
+const activeTab = ref<'api' | 'ui' | 'other'>('api');
+
 // 输出模式（默认双 API，与 apiSettings.getCurrentOutputMode 一致）
 const outputMode = ref<OutputMode>('dual');
 const isUpdatingWorldbook = ref(false);
+
+// 输入行为模式（默认复制到输入框）
+const inputActionMode = ref<InputActionMode>('append');
 
 // 第二API配置（默认酒馆插头，与 DEFAULT_SECONDARY_API_CONFIG 一致）
 const secondaryApi = ref<SecondaryApiConfig>({ ...DEFAULT_SECONDARY_API_CONFIG });
@@ -470,57 +572,68 @@ const connectionStatus = ref<'success' | 'error' | null>(null);
 const connectionMessage = ref('');
 const showSaveSuccess = ref(false);
 
-type UiLayoutSettings = {
-  scale: number; // 0.8 ~ 1.3
-  maxWidth: number; // px
-  heightMode: 'fit' | 'custom';
-  maxHeight: number; // px (custom)
-};
+function emitLayout(next: UiLayoutSettings) {
+  emit('layoutChange', next);
+}
 
-const uiLayout = ref<UiLayoutSettings>({
-  scale: 0.8,
-  maxWidth: 900,
-  heightMode: 'fit',
-  maxHeight: 400,
-});
+function onScaleInput(e: Event) {
+  const v = Number((e.target as HTMLInputElement).value);
+  const next = { ...props.uiLayout, scale: v };
+  emitLayout(next);
+  void saveSettings(next);
+}
+
+function onMaxWidthInput(e: Event) {
+  const v = Number((e.target as HTMLInputElement).value);
+  const next = { ...props.uiLayout, maxWidth: v };
+  emitLayout(next);
+  void saveSettings(next);
+}
+
+function onMainHeightInput(e: Event) {
+  const v = Number((e.target as HTMLInputElement).value);
+  const next = { ...props.uiLayout, maxHeight: clampMainUiHeightPx(v) };
+  emitLayout(next);
+  void saveSettings(next);
+}
 
 // 从变量存储加载设置
 onMounted(async () => {
   await loadSettings();
 });
 
-async function loadSettings() {
+/** 仅加载输出模式与第二 API；uiLayout 由 App 水合后经 props 传入，避免竞态闪动 */
+function loadSettings() {
   try {
-    const { readGameData } = await import('../utils/variableReader');
-    const gameData = await readGameData();
+    const { useDataStore } = import('../store');
+    const store = useDataStore();
+    const player = (store.data as any).player;
 
     // 加载输出模式
-    if (gameData.player?.settings?.outputMode) {
-      outputMode.value = gameData.player.settings.outputMode;
+    if (player?.settings?.outputMode) {
+      outputMode.value = player.settings.outputMode;
     }
 
     // 加载第二API配置
-    if (gameData.player?.settings?.secondaryApi) {
+    if (player?.settings?.secondaryApi) {
       secondaryApi.value = {
         ...secondaryApi.value,
-        ...gameData.player.settings.secondaryApi,
+        ...player.settings.secondaryApi,
       };
     }
 
-    // 加载界面布局设置
-    if (gameData.player?.settings?.uiLayout) {
-      uiLayout.value = {
-        ...uiLayout.value,
-        ...gameData.player.settings.uiLayout,
-      };
+    // 加载其他设置（输入行为模式）
+    if (player?.settings?.other?.inputActionMode) {
+      inputActionMode.value = player.settings.other.inputActionMode;
     }
   } catch (error) {
     console.warn('加载设置失败:', error);
   }
 }
 
-// 保存设置到变量存储
-async function saveSettings() {
+// 保存设置到变量存储（布局快照由调用方传入，避免 props 尚未同步时写入旧值）
+async function saveSettings(layoutSnapshot?: UiLayoutSettings) {
+  const layout = layoutSnapshot ?? props.uiLayout;
   try {
     const { updateStatData } = await import('../utils/dialogAndVariable');
     updateStatData((stat) => {
@@ -532,12 +645,14 @@ async function saveSettings() {
       }
       stat.player.settings.outputMode = outputMode.value;
       stat.player.settings.secondaryApi = secondaryApi.value;
-      stat.player.settings.uiLayout = uiLayout.value;
+      stat.player.settings.uiLayout = layout;
+      // 保存其他设置
+      if (!stat.player.settings.other) {
+        stat.player.settings.other = {};
+      }
+      stat.player.settings.other.inputActionMode = inputActionMode.value;
       return stat;
     });
-
-    // 即时通知父组件应用布局
-    emit('layoutChange', uiLayout.value);
 
     // 显示保存成功提示
     showSaveSuccess.value = true;
@@ -548,6 +663,16 @@ async function saveSettings() {
     console.error('保存设置失败:', error);
     toastr.error('设置保存失败');
   }
+}
+
+// 输入行为模式变更
+async function onInputActionModeChange() {
+  // 保存设置
+  await saveSettings();
+
+  // 显示提示
+  const modeText = inputActionMode.value === 'send' ? '直接发送' : '复制到输入框';
+  toastr.success(`已切换到「${modeText}」模式`);
 }
 
 // 选择输出模式
@@ -793,6 +918,91 @@ async function testConnection() {
 .settings-panel {
   padding: 24px;
   min-height: 100%;
+}
+
+// 标签页头部
+.tabs-header {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid;
+  padding-bottom: 12px;
+}
+
+.dark .tabs-header {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.light .tabs-header {
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+.tab-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: transparent;
+
+  i {
+    font-size: 14px;
+  }
+
+  &:hover {
+    transform: translateY(-1px);
+  }
+}
+
+.dark .tab-button {
+  color: #a1a1aa;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: #e4e4e7;
+  }
+
+  &.active {
+    background: rgba(59, 130, 246, 0.15);
+    border-color: #3b82f6;
+    color: #3b82f6;
+  }
+}
+
+.light .tab-button {
+  color: #71717a;
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.05);
+    color: #374151;
+  }
+
+  &.active {
+    background: rgba(59, 130, 246, 0.1);
+    border-color: #3b82f6;
+    color: #3b82f6;
+  }
+}
+
+// 标签页内容
+.tab-content {
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .settings-section {
@@ -1779,6 +1989,87 @@ test-connection-wrapper {
   i {
     font-size: 16px;
   }
+}
+
+// 简化版设置样式
+.simple-toggle {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.toggle-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s ease;
+
+  input[type="radio"] {
+    display: none;
+  }
+
+  .toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 500;
+
+    i {
+      font-size: 14px;
+    }
+  }
+}
+
+.dark .toggle-item {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #a1a1aa;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.15);
+  }
+
+  &.active {
+    background: rgba(59, 130, 246, 0.15);
+    border-color: #3b82f6;
+    color: #3b82f6;
+  }
+}
+
+.light .toggle-item {
+  background: #f9fafb;
+  border-color: rgba(0, 0, 0, 0.1);
+  color: #6b7280;
+
+  &:hover {
+    background: #f3f4f6;
+    border-color: rgba(0, 0, 0, 0.15);
+  }
+
+  &.active {
+    background: rgba(59, 130, 246, 0.1);
+    border-color: #3b82f6;
+    color: #3b82f6;
+  }
+}
+
+.setting-hint {
+  margin-top: 12px;
+  font-size: 12px;
+}
+
+.dark .setting-hint {
+  color: #71717a;
+}
+
+.light .setting-hint {
+  color: #9ca3af;
 }
 
 .toggle-row {

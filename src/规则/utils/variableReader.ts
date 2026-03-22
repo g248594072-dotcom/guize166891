@@ -107,12 +107,23 @@ async function getGameMvuData(): Promise<MvuData> {
       }
 
       // 尝试从该 assistant 消息的 data 字段读取（备用方案）
-      if (latestAssistant.data && latestAssistant.data.stat_data && hasStatDataContent(latestAssistant.data.stat_data)) {
-        console.log(`✅ [variableReader] 从最新 assistant 消息（ID: ${messageId}）的 data 字段读取变量数据`);
+      if (latestAssistant.data && hasStatDataContent(latestAssistant.data)) {
+        // 检查是否已经是 MVU 格式（有 stat_data 等字段）
+        if (latestAssistant.data.stat_data && typeof latestAssistant.data.stat_data === 'object') {
+          // 已经是 MVU 格式，直接返回整个 data
+          console.log(`✅ [variableReader] 从最新 assistant 消息（ID: ${messageId}）读取 MVU 格式数据`);
+          return {
+            stat_data: latestAssistant.data.stat_data || {},
+            display_data: latestAssistant.data?.display_data || {},
+            delta_data: latestAssistant.data?.delta_data || {},
+          };
+        }
+        // 如果不是 MVU 格式，尝试直接使用 data 作为 stat_data
+        console.log(`✅ [variableReader] 从最新 assistant 消息（ID: ${messageId}）读取原始数据，包装为 MVU 格式`);
         return {
-          stat_data: latestAssistant.data.stat_data || {},
-          display_data: latestAssistant.data?.display_data || {},
-          delta_data: latestAssistant.data?.delta_data || {},
+          stat_data: latestAssistant.data || {},
+          display_data: {},
+          delta_data: {},
         };
       } else {
         console.log(`⚠️ [variableReader] 消息 ${messageId} 的 data 字段为空或无效`);
@@ -197,21 +208,40 @@ function pickRuleEffectDesc(value: Record<string, any> | undefined | null): stri
 }
 
 /**
- * 从中文结构「世界规则」映射到 RuleData[]
+ * 从中文结构「世界规则」映射到 RuleData[]，支持英文字段回退
  */
 function mapWorldRulesFromChinese(stat: Record<string, any>): RuleData[] {
   const raw = stat['世界规则'];
   if (!raw || typeof raw !== 'object') return [];
 
   return Object.entries(raw).map(([title, value]: [string, any]) => {
-    const 状态 = value?.['状态'] ?? '生效中';
-    const desc = pickRuleEffectDesc(value);
-    const 标记 = value?.['标记'];
+    // 优先中文字段，回退英文字段
+    let 状态 = value?.['状态'];
+    if (!状态 && (value?.['active'] === true || value?.['enabled'] === true)) {
+      状态 = '生效中';
+    } else if (!状态 && (value?.['active'] === false || value?.['enabled'] === false)) {
+      状态 = '已归档';
+    }
+    状态 = 状态 ?? '生效中';
+
+    // 优先效果描述，回退 desc/description
+    let desc = pickRuleEffectDesc(value);
+    if (!desc) {
+      desc = value?.['desc'] ?? value?.['description'] ?? '';
+    }
+
+    const 标记 = value?.['标记'] ?? value?.['tag'] ?? '';
     const status: 'active' | 'inactive' | 'pending' = ruleStatusToUi(状态);
+
+    // 使用中文名称或英文 name 字段作为标题
+    let displayTitle = title;
+    if (value?.['name'] && typeof value['name'] === 'string') {
+      displayTitle = value['name'];
+    }
 
     return {
       id: `world-${title}`,
-      title,
+      title: displayTitle,
       desc,
       status,
       category: 'world',
@@ -300,34 +330,77 @@ function mapCharactersFromChinese(stat: Record<string, any>): CharacterData[] {
   if (!raw || typeof raw !== 'object') return [];
 
   return Object.entries(raw).map(([id, value]: [string, any]) => {
-    const name = value?.['姓名'] ?? id;
-    const 描写 = value?.['描写'] ?? '';
+    // 优先使用姓名字段
+    let name = value?.['姓名'];
+    // 如果姓名为空、"未知"或空白，尝试使用英文 name 字段
+    if (!name || name === '未知' || name.trim() === '') {
+      name = value?.['name'];
+    }
+    // 如果还是空，使用 ID 作为名字
+    if (!name || name.trim() === '' || name === '未知') {
+      name = id;
+    }
+
+    const 描写 = value?.['描写'] ?? value?.['description'] ?? '';
     const 状态 = value?.['状态'] ?? '出场中';
 
-    const 当前内心想法 = value?.['当前内心想法'] ?? '';
-    const 性格 = Array.isArray(value?.['性格']) ? value?.['性格'] : [];
-    const 性癖 = Array.isArray(value?.['性癖']) ? value?.['性癖'] : [];
-    const 敏感部位 = Array.isArray(value?.['敏感部位']) ? value?.['敏感部位'] : [];
-    const 隐藏性癖 = value?.['隐藏性癖'] ?? '';
+    const 当前内心想法 = value?.['当前内心想法'] ?? value?.['currentThought'] ?? '';
+    const 性格 = Array.isArray(value?.['性格']) ? value?.['性格'] :
+                Array.isArray(value?.['traits']) ? value?.['traits'] : [];
+    const 性癖 = Array.isArray(value?.['性癖']) ? value?.['性癖'] :
+                Array.isArray(value?.['fetishes']) ? value?.['fetishes'] : [];
+    const 敏感部位 = Array.isArray(value?.['敏感部位']) ? value?.['敏感部位'] :
+                    Array.isArray(value?.['sensitiveParts']) ? value?.['sensitiveParts'] : [];
+    const 隐藏性癖 = value?.['隐藏性癖'] ?? value?.['hiddenFetish'] ?? '';
 
     const 身体 = value?.['身体信息'] ?? {};
     const 数值 = value?.['数值'] ?? {};
 
     const basic = {
-      age: 身体['年龄'] != null ? String(身体['年龄']) : undefined,
-      height: 身体['身高'] != null ? String(身体['身高']) : undefined,
-      weight: 身体['体重'] != null ? String(身体['体重']) : undefined,
-      threeSize: 身体['三围'],
-      physique: 身体['体质特征'],
+      age: 身体['年龄'] != null ? String(身体['年龄']) :
+           value?.['age'] != null ? String(value['age']) : undefined,
+      height: 身体['身高'] != null ? String(身体['身高']) :
+              value?.['height'] != null ? String(value['height']) : undefined,
+      weight: 身体['体重'] != null ? String(身体['体重']) :
+              value?.['weight'] != null ? String(value['weight']) : undefined,
+      threeSize: 身体['三围'] ?? value?.['threeSize'],
+      physique: 身体['体质特征'] ?? value?.['physique'],
     };
 
     const stats: Record<string, number> = {};
+    // 优先读取中文数值字段
     if (typeof 数值['好感度'] === 'number') stats.affection = 数值['好感度'];
     if (typeof 数值['发情值'] === 'number') stats.lust = 数值['发情值'];
     const fetishVal = 数值['性癖开发值'] ?? 数值['性癖开发度'];
     if (typeof fetishVal === 'number') stats.fetish = fetishVal;
 
-    const 生理描述 = value?.['当前综合生理描述'];
+    // 如果中文字段为0或未定义，回退到英文字段
+    if (!stats.affection && typeof value?.['affection'] === 'number') {
+      stats.affection = value['affection'];
+    }
+    if (!stats.lust) {
+      if (typeof value?.['estrus'] === 'number') stats.lust = value['estrus'];
+      else if (typeof value?.['lust'] === 'number') stats.lust = value['lust'];
+    }
+    if (!stats.fetish) {
+      if (typeof value?.['fetish_dev'] === 'number') stats.fetish = value['fetish_dev'];
+      else if (typeof value?.['fetish'] === 'number') stats.fetish = value['fetish'];
+    }
+    // 处理嵌套的 state 对象
+    if (value?.['state'] && typeof value['state'] === 'object') {
+      const state = value['state'];
+      if (!stats.affection && typeof state['Affection'] === 'number') {
+        stats.affection = state['Affection'];
+      }
+      if (!stats.lust && typeof state['Estrus'] === 'number') {
+        stats.lust = state['Estrus'];
+      }
+      if (!stats.fetish && typeof state['Fetish_Dev'] === 'number') {
+        stats.fetish = state['Fetish_Dev'];
+      }
+    }
+
+    const 生理描述 = value?.['当前综合生理描述'] ?? value?.['currentPhysiologicalDesc'] ?? '';
 
     return {
       id,
@@ -369,40 +442,22 @@ export async function readGameData(): Promise<GameData> {
     settings: {},
   });
 
-  // 读取规则与角色：优先使用中文结构（与变量更新规则 / MVU 一致）；仅当对应中文块为空时才回退英文数组
-  const worldRulesCn = mapWorldRulesFromChinese(stat);
-  const regionalRulesCn = mapRegionalRulesFromChinese(stat);
-  const personalRulesCn = mapPersonalRulesFromChinese(stat);
-  const charactersCn = mapCharactersFromChinese(stat);
+  // 读取规则与角色：统一使用中文 MVU 格式（支持英文字段回退）
+  let worldRules = mapWorldRulesFromChinese(stat);
+  const regionalRules = mapRegionalRulesFromChinese(stat);
+  const personalRules = mapPersonalRulesFromChinese(stat);
+  const characters = mapCharactersFromChinese(stat);
 
-  const worldRulesEn = pick(stat, 'worldRules', []) as RuleData[];
-  const regionalRulesEn = pick(stat, 'regionalRules', []) as RegionData[];
-  const personalRulesEn = pick(stat, 'personalRules', []) as RuleData[];
-  const charactersEn = pick(stat, 'characters', []) as CharacterData[];
-
-  const worldRules = isNonEmptyObject(stat['世界规则'])
-    ? worldRulesCn
-    : Array.isArray(worldRulesEn) && worldRulesEn.length > 0
-      ? worldRulesEn
-      : worldRulesCn;
-
-  const regionalRules = isNonEmptyObject(stat['区域规则'])
-    ? regionalRulesCn
-    : Array.isArray(regionalRulesEn) && regionalRulesEn.length > 0
-      ? regionalRulesEn
-      : regionalRulesCn;
-
-  const personalRules = isNonEmptyObject(stat['个人规则'])
-    ? personalRulesCn
-    : Array.isArray(personalRulesEn) && personalRulesEn.length > 0
-      ? personalRulesEn
-      : personalRulesCn;
-
-  const characters = isNonEmptyObject(stat['角色档案'])
-    ? charactersCn
-    : Array.isArray(charactersEn) && charactersEn.length > 0
-      ? charactersEn
-      : charactersCn;
+  // 如果世界规则为空，从 openingConfig.selectedRules 构建
+  if (worldRules.length === 0 && stat['openingConfig']?.selectedRules) {
+    worldRules = stat['openingConfig'].selectedRules.map((r: any) => ({
+      id: `world-${r.name}`,
+      title: r.name,
+      desc: r.desc || '',
+      status: 'active' as const,
+      category: 'world' as const,
+    }));
+  }
 
   // 读取元数据（浅拷贝，避免改写 stat_data 内联对象）
   const meta = {

@@ -54,9 +54,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
-import type { CharacterData } from '../types';
-import { readCharacters } from '../utils/variableReader';
+import { computed, ref, watch } from 'vue';
+import { useCharacters } from '../store';
 
 interface CharacterCardView {
   id: string;
@@ -67,12 +66,33 @@ interface CharacterCardView {
   affection: number;
 }
 
-const characters = ref<CharacterCardView[]>([]);
+const emit = defineEmits<{
+  (e: 'select', id: string): void;
+  (e: 'openModal', type: string): void;
+}>();
+
 const isLoading = ref(true);
 
-const visibleCharacters = computed(() => {
-  return characters.value || [];
+// ⭐ 使用新的响应式 store
+const characters = useCharacters();
+
+const visibleCharacters = computed((): CharacterCardView[] => {
+  return (characters.value || []).map(c => ({
+    id: c.id,
+    name: toDisplayName(c.name, c.id),
+    role: '角色',
+    status: c.status === 'active' ? '出场中' : '暂时退场',
+    lust: typeof c.stats?.lust === 'number' ? c.stats.lust : 0,
+    affection: typeof c.stats?.affection === 'number' ? c.stats.affection : 0,
+  }));
 });
+
+// 监听数据加载完成
+watch(characters, (val) => {
+  if (val) {
+    isLoading.value = false;
+  }
+}, { immediate: true });
 
 function toDisplayName(name: unknown, fallback: string) {
   const n = String(name ?? '').trim();
@@ -85,281 +105,145 @@ function formatAffection(v: number) {
   if (typeof v !== 'number' || !Number.isFinite(v)) return '0';
   return String(Math.round(v));
 }
-
-async function loadCharacters() {
-  isLoading.value = true;
-  try {
-    const list: CharacterData[] = await readCharacters();
-
-    const cards: CharacterCardView[] = [];
-
-    for (const c of list) {
-      cards.push({
-        id: c.id,
-        name: toDisplayName((c as any).name, c.id),
-        role: '角色',
-        status: c.status === 'active' ? '出场中' : '暂时退场',
-        lust: typeof (c as any).stats?.lust === 'number' ? (c as any).stats.lust : 0,
-        affection: typeof (c as any).stats?.affection === 'number' ? (c as any).stats.affection : 0,
-      });
-    }
-
-    characters.value = cards;
-    console.log('✅ [CharacterList] 加载角色:', cards.length);
-  } catch (e) {
-    console.warn('加载角色列表失败', e);
-    characters.value = [];
-  } finally {
-    isLoading.value = false;
-  }
-}
-
-onMounted(() => {
-  loadCharacters();
-
-  // 监听消息更新事件，刷新数据
-  if (typeof eventOn === 'function' && typeof tavern_events !== 'undefined') {
-    eventOn(tavern_events.MESSAGE_UPDATED, () => {
-      console.log('🔄 [CharacterList] 消息更新，刷新角色...');
-      loadCharacters();
-    });
-  }
-});
-
-defineEmits<{
-  (e: 'select', id: string): void;
-  (e: 'openModal', type: string): void;
-}>();
 </script>
 
-<style lang="scss" scoped>
+<style scoped>
 .character-list {
   display: flex;
   flex-direction: column;
-  gap: 24px;
-  padding-bottom: 80px;
+  gap: 0.75rem;
 }
 
 .section-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+}
 
-  .desc {
-    font-size: 14px;
-    color: #a1a1aa;
-  }
+.section-header .desc {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  margin: 0;
 }
 
 .actions {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  gap: 0.5rem;
 }
 
 .action-btn {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--accent-color, #4f46e5);
+  color: white;
   border: none;
-  background: rgba(255, 255, 255, 0.05);
-  color: #e4e4e7;
-
-  &:hover {
-    background: rgba(255, 255, 255, 0.1);
-  }
-}
-
-:global(.light) .action-btn {
-  background: rgba(0, 0, 0, 0.05);
-  color: #27272a;
-
-  &:hover {
-    background: rgba(0, 0, 0, 0.1);
-  }
-}
-
-.character-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 16px;
-
-  @media (min-width: 640px) {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-.character-card {
-  padding: 20px;
-  border-radius: 16px;
+  border-radius: 6px;
+  font-size: 0.875rem;
   cursor: pointer;
-  position: relative;
-  overflow: hidden;
-  transition: all 0.2s;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.02);
-
-  &:hover {
-    border-color: rgba(255, 255, 255, 0.2);
-  }
-
+  transition: opacity 0.2s;
 }
 
-:global(.light) .character-card {
-  border-color: rgba(0, 0, 0, 0.1);
-  background: #fff;
-
-  &:hover {
-    border-color: rgba(0, 0, 0, 0.2);
-  }
+.action-btn:hover {
+  opacity: 0.9;
 }
 
-.card-header {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 16px;
-
-  .avatar {
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(255, 255, 255, 0.05);
-    color: #a1a1aa;
-    transition: all 0.2s;
-
-    i {
-      font-size: 24px;
-    }
-
-    &:hover {
-      color: #e4e4e7;
-    }
-  }
-
-  .info {
-    h4 {
-      font-size: 16px;
-      font-weight: 500;
-      color: #f4f4f5;
-      margin-bottom: 4px;
-    }
-
-    p {
-      font-size: 12px;
-      color: #71717a;
-    }
-  }
-}
-
-:global(.light) .card-header {
-  .avatar {
-    background: rgba(0, 0, 0, 0.05);
-    color: #71717a;
-
-    &.protagonist {
-      background: rgba(0, 0, 0, 0.1);
-      color: #18181b;
-    }
-  }
-
-  .info h4 {
-    color: #18181b;
-  }
-}
-
-.stats {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-
-  .stat-row {
-    display: flex;
-    justify-content: space-between;
-    font-size: 12px;
-
-    .label {
-      color: #71717a;
-    }
-
-    .value {
-      color: #d4d4d8;
-      font-family: monospace;
-    }
-  }
-}
-
-:global(.light) .stats .stat-row .value {
-  color: #27272a;
-}
-
-.loading-state {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 48px 24px;
-  color: #71717a;
-  font-size: 14px;
-
-  i {
-    font-size: 20px;
-  }
-}
-
-:global(.light) .loading-state {
-  color: #a1a1aa;
-}
-
+.loading-state,
 .empty-state {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 48px 24px;
+  padding: 3rem 1rem;
+  gap: 0.75rem;
+  color: var(--text-secondary);
   text-align: center;
-  gap: 12px;
-
-  i {
-    font-size: 48px;
-    color: #52525b;
-    opacity: 0.5;
-  }
-
-  p {
-    font-size: 16px;
-    font-weight: 500;
-    color: #e4e4e7;
-    margin: 0;
-  }
-
-  .hint {
-    font-size: 13px;
-    color: #71717a;
-    max-width: 280px;
-  }
 }
 
-:global(.light) .empty-state {
-  i {
-    color: #a1a1aa;
-  }
+.loading-state i,
+.empty-state i {
+  font-size: 2rem;
+  opacity: 0.5;
+}
 
-  p {
-    color: #27272a;
-  }
+.empty-state .hint {
+  font-size: 0.75rem;
+  opacity: 0.7;
+}
 
-  .hint {
-    color: #a1a1aa;
-  }
+.character-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.75rem;
+}
+
+.character-card {
+  background: var(--card-bg, rgba(255, 255, 255, 0.05));
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+  border-radius: 8px;
+  padding: 1rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.character-card:hover {
+  background: var(--card-hover-bg, rgba(255, 255, 255, 0.08));
+  border-color: var(--accent-color, #4f46e5);
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--accent-color, #4f46e5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 1.25rem;
+}
+
+.info h4 {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--text-primary);
+}
+
+.info p {
+  margin: 0.25rem 0 0;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.stats {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.75rem;
+}
+
+.stat-row .label {
+  color: var(--text-secondary);
+}
+
+.stat-row .value {
+  color: var(--accent-color, #4f46e5);
+  font-weight: 600;
 }
 </style>

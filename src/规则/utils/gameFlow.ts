@@ -96,8 +96,8 @@ function validateMessage(text: string, isDualMode = false): { valid: boolean; er
   let cleaned = text.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '');
   cleaned = cleaned.replace(/<redacted_reasoning>[\s\S]*?<\/redacted_reasoning>/gi, '');
 
-  // 检查必需标签
-  const hasMaintext = /<maintext>[\s\S]*?<\/maintext>/i.test(cleaned);
+  // 与 parseMaintext 一致：存在可解析的最后一对 maintext 即视为有正文
+  const hasMaintext = parseMaintext(cleaned).length > 0;
   const hasOption = /<option[\s\S]*?<\/option>/i.test(cleaned);
   const hasSum = /<sum>[\s\S]*?<\/sum>/i.test(cleaned);
 

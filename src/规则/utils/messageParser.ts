@@ -348,8 +348,59 @@ export function extractFilteredContent(streamText: string): string {
 }
 
 /**
+ * 从后往前配对：最后一个 </maintext> 与其前方最后一个 <maintext> 之间的内容。
+ * 避免前文「1. <maintext>」等未闭合示例与唯一闭标签被非贪婪正则误配成一对。
+ */
+export function extractMaintextByLastClosePair(text: string): string {
+  if (!text) return '';
+
+  const lc = text.toLowerCase();
+  const closeIdx = lc.lastIndexOf('</maintext>');
+  if (closeIdx === -1) return '';
+
+  const openIdx = lc.lastIndexOf('<maintext>', closeIdx);
+  if (openIdx === -1) return '';
+
+  const openSlice = text.slice(openIdx);
+  const openMatch = openSlice.match(/^<maintext>/i);
+  if (!openMatch) return '';
+
+  const innerStart = openIdx + openMatch[0].length;
+  if (innerStart > closeIdx) return '';
+
+  if (!/^<\/maintext>/i.test(text.slice(closeIdx))) return '';
+
+  return text.slice(innerStart, closeIdx).trim();
+}
+
+/**
+ * 将「最后一对」<maintext> 的内部替换为 newInner，保留原有开闭标签写法（含大小写）。
+ * 用于编辑保存，避免只替换到第一对标签。
+ */
+export function replaceLastMaintextInnerContent(fullMessage: string, newInner: string): string {
+  if (!fullMessage) return fullMessage;
+
+  const lc = fullMessage.toLowerCase();
+  const closeIdx = lc.lastIndexOf('</maintext>');
+  if (closeIdx === -1) return fullMessage;
+
+  const openIdx = lc.lastIndexOf('<maintext>', closeIdx);
+  if (openIdx === -1) return fullMessage;
+
+  const openMatch = fullMessage.slice(openIdx).match(/^<maintext>/i);
+  if (!openMatch) return fullMessage;
+
+  const innerStart = openIdx + openMatch[0].length;
+  if (innerStart > closeIdx) return fullMessage;
+
+  if (!/^<\/maintext>/i.test(fullMessage.slice(closeIdx))) return fullMessage;
+
+  return fullMessage.slice(0, innerStart) + newInner + fullMessage.slice(closeIdx);
+}
+
+/**
  * 解析消息中的正文
- * 注意：只提取不在<thinking>或标签内部的<maintext>标签
+ * 注意：先移除 <thinking> / redacted_reasoning，再按最后一对闭标签从后往前取 maintext
  */
 export function parseMaintext(messageContent: string): string {
   if (!messageContent) return '';
@@ -368,12 +419,7 @@ export function parseMaintext(messageContent: string): string {
     cleaned = cleaned.substring(0, redactedStart);
   }
 
-  // 提取最后一个 <maintext> 标签
-  const matches = cleaned.match(/<maintext>([\s\S]*?)<\/maintext>/gi);
-  if (!matches || matches.length === 0) return '';
-  const lastMatch = matches[matches.length - 1];
-  const content = lastMatch.match(/<maintext>([\s\S]*?)<\/maintext>/i);
-  return content ? content[1].trim() : '';
+  return extractMaintextByLastClosePair(cleaned);
 }
 
 /**
@@ -382,7 +428,7 @@ export function parseMaintext(messageContent: string): string {
 export function extractLastSumContent(messageContent: string): string {
   if (!messageContent) return '';
   let cleaned = messageContent.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '');
-  cleaned = cleaned.replace(/<think>[\s\S]*?<\/redacted_reasoning>/gi, '');
+  cleaned = cleaned.replace(/<redacted_reasoning>[\s\S]*?<\/redacted_reasoning>/gi, '');
   const matches = [...cleaned.matchAll(/<sum>([\s\S]*?)<\/sum>/gi)];
   if (matches.length === 0) return '';
   const last = matches[matches.length - 1];
@@ -416,36 +462,38 @@ export function parseOptions(messageContent: string): Option[] {
     cleaned = cleaned.substring(0, redactedStart);
   }
 
-  const optionPairRe = /<option([^>]*)>([\s\S]*?)<\/option>/gi;
-  const allPairs = [...cleaned.matchAll(optionPairRe)];
-
-  // 带 id 的短标签：若全部为 id 格式，保留全部（多选项）
-  const optionWithIdRegex = /<option id="([^"]+)">([^<]+)<\/option>/g;
+  // 匹配所有带 id 的 <option id="X">...</option> 标签（支持多行内容）
+  const optionWithIdRegex = /<option id="([^"]+)">([\s\S]*?)<\/option>/gi;
   const optionsWithId: Option[] = [];
   let match;
   while ((match = optionWithIdRegex.exec(cleaned)) !== null) {
     optionsWithId.push({
-      id: match[1],
+      id: match[1].trim().toUpperCase(),
       text: match[2].trim(),
     });
   }
 
-  const allPairsAreId =
-    allPairs.length > 0 &&
-    allPairs.every((m) => /id\s*=\s*"/i.test(m[1] ?? ''));
-
-  // 每个 <option> 都是短 id 标签且与总对数一致：无混进大块无 id 选项
-  if (optionsWithId.length > 0 && allPairsAreId && allPairs.length === optionsWithId.length) {
+  // 如果找到带 id 的 option 标签，直接返回（通常是 A、B、C 三个选项）
+  if (optionsWithId.length > 0) {
     return optionsWithId;
   }
 
-  // 否则取最后一对 <option>…</option>（避免前文格式说明里的假 <option> 吞掉正文）
-  const lastPair = allPairs.length ? allPairs[allPairs.length - 1] : null;
-  if (!lastPair) {
+  // 兼容旧格式：匹配所有不带 id 的 <option>...</option> 标签对
+  const optionPairRe = /<option([^>]*)>([\s\S]*?)<\/option>/gi;
+  const allPairs = [...cleaned.matchAll(optionPairRe)];
+
+  // 取最后三个闭合的 <option>…</option> 标签对（通常对应 A/B/C 三个选项）
+  const lastThreePairs = allPairs.slice(-3);
+  const allOptionTexts: string[] = [];
+  for (const pair of lastThreePairs) {
+    const text = (pair[2] ?? '').trim();
+    if (text) allOptionTexts.push(text);
+  }
+  if (allOptionTexts.length === 0) {
     return [];
   }
 
-  const optionText = (lastPair[2] ?? '').trim();
+  const optionText = allOptionTexts.join('\n');
   const lines = optionText.split('\n').map(line => line.trim()).filter(line => line.length > 0);
 
   // 检查是否是 A.、B.、C. 格式

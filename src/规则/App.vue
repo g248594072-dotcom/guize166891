@@ -11,9 +11,14 @@
     v-else-if="gamePhase === GamePhase.GAME"
     id="app-root"
     class="rule-modifier"
-    :class="{ 'dark': isDarkMode, 'light': !isDarkMode }"
+    :class="{ 'dark': isDarkMode, 'light': !isDarkMode, 'layout-pending': uiLayout.maxHeight === undefined }"
     :style="rootStyle"
   >
+    <!-- Store 加载中 -->
+    <div v-if="!isStoreReady" class="store-loading">
+      <i class="fa-solid fa-circle-notch fa-spin"></i>
+      <span>加载数据中...</span>
+    </div>
     <!-- Sidebar -->
     <nav class="sidebar">
       <div class="sidebar-top">
@@ -72,6 +77,7 @@
               <SettingsPanel
                 v-else-if="activeTab === 'settings'"
                 :is-dark-mode="isDarkMode"
+                :ui-layout="uiLayout"
                 @mode-change="onOutputModeChange"
                 @update-worldbook="onUpdateWorldbook"
                 @layout-change="onLayoutChange"
@@ -769,6 +775,7 @@ import {
   isFilteringComplete,
   extractFilteredContent,
   extractLastSumContent,
+  replaceLastMaintextInnerContent,
   type Option,
   type TagCheckResult
 } from './utils/messageParser';
@@ -780,10 +787,14 @@ import {
 } from './utils/gameInitializer';
 import { updateWorldbookEntriesByMode, isSecondaryApiConfigured } from './utils/apiSettings';
 import { startIframeHeightFix } from './utils/iframeHeightFix';
+import type { UiLayoutSettings } from './utils/uiLayoutLimits';
+import { clampMainUiHeightPx } from './utils/uiLayoutLimits';
+import { useDataStore } from './store';
 
 // 游戏阶段管理
 const gamePhase = ref<GamePhase>(GamePhase.OPENING);
 const isInitializing = ref(false);
+const isStoreReady = ref(false); // store 数据是否就绪
 const isGeneratingOpening = ref(false); // 开场白生成中（显示加载弹窗）
 /** 标签确认后：写入楼层、MVU 解析、开局第二 API 等进行中；不挡正文，仅顶栏提示并禁止发送 */
 const isVariablePersistInProgress = ref(false);
@@ -792,6 +803,8 @@ const openingFormKey = ref(0); // 强制重置 OpeningForm（用于回退/失败
 
 // 宿主会反复把同层 iframe 高度改成很小值（如 72px），需要在进入游戏阶段后兜底保持最小高度。
 let stopIframeHeightFix: (() => void) | null = null;
+/** 避免同值重复 stop/start iframe 兜底导致一帧高度异常 */
+let lastIframeMinHeightApplied: number | null = null;
 
 // 界面状态
 const activeTab = ref<string | null>(null);
@@ -801,11 +814,12 @@ const modalPayload = ref<Record<string, any> | null>(null);
 const isDarkMode = ref(true);
 
 // 布局/缩放设置（来自系统设置）
-const uiLayout = ref({
+// 默认 maxHeight: undefined 避免首帧硬编码 600 闪现；CSS 会用 auto 过渡，等数据水合后再固定
+const uiLayout = ref<Partial<UiLayoutSettings>>({
   scale: 0.8,
   maxWidth: 900,
-  heightMode: 'fit' as 'fit' | 'custom',
-  maxHeight: 400,
+  heightMode: 'fit',
+  maxHeight: undefined,
 });
 
 const rootStyle = computed(() => {
@@ -817,9 +831,13 @@ const rootStyle = computed(() => {
     ? '100vw' // 全屏时占满视口宽度
     : `${Math.round(Number(uiLayout.value.maxWidth) || 900)}px`;
 
+  // 若尚未水合（undefined），CSS 用 auto 避免闪现；水合后用固定值
+  const rawMaxHeight = uiLayout.value.maxHeight;
   const maxHeight = isFS
-    ? '100vh' // 全屏时占满视口高度
-    : '600px';
+    ? '100vh'
+    : rawMaxHeight === undefined
+      ? 'auto'
+      : `${clampMainUiHeightPx(rawMaxHeight)}px`;
 
   return {
     '--ui-scale': String(scale),
@@ -924,15 +942,19 @@ watch(activeTab, (newVal, oldVal) => {
 }, { immediate: true });
 
 watch(
-  gamePhase,
-  (phase) => {
-    if (phase === GamePhase.GAME) {
-      stopIframeHeightFix?.();
-      stopIframeHeightFix = startIframeHeightFix({ minHeightPx: 600 });
-    } else {
+  [gamePhase, () => uiLayout.value.maxHeight],
+  () => {
+    if (gamePhase.value !== GamePhase.GAME) {
+      lastIframeMinHeightApplied = null;
       stopIframeHeightFix?.();
       stopIframeHeightFix = null;
+      return;
     }
+    const px = clampMainUiHeightPx(uiLayout.value.maxHeight);
+    if (lastIframeMinHeightApplied === px && stopIframeHeightFix) return;
+    lastIframeMinHeightApplied = px;
+    stopIframeHeightFix?.();
+    stopIframeHeightFix = startIframeHeightFix({ minHeightPx: px });
   },
   { immediate: true },
 );
@@ -984,7 +1006,7 @@ function formatGenerationDurationMs(ms: number): string {
   return `${m} 分 ${String(rs).padStart(2, '0')} 秒`;
 }
 
-function onLayoutChange(layout: { scale: number; maxWidth: number; heightMode: 'fit' | 'custom'; maxHeight: number }) {
+function onLayoutChange(layout: UiLayoutSettings) {
   uiLayout.value = { ...uiLayout.value, ...layout };
 }
 
@@ -1149,9 +1171,9 @@ async function openModal(type: string, payload?: Record<string, any>) {
 
   if ((type === 'edit_character_mind' || type === 'edit_character_fetish') && payload?.characterId) {
     try {
-      const { readCharacters } = await import('./utils/variableReader');
-      const list = await readCharacters();
-      const c: any = (list || []).find((x: any) => x?.id === payload.characterId);
+      const { useCharacters } = await import('./store');
+      const characters = useCharacters();
+      const c: any = (characters.value || []).find((x: any) => x?.id === payload.characterId);
       if (c) {
         modalForm.value.characterPsychThought = String(c.currentThought ?? '');
         modalForm.value.characterPsychTraits = Array.isArray(c.traits) ? c.traits.join('\n') : '';
@@ -1171,10 +1193,25 @@ function closeModal() {
   modalPayload.value = null;
 }
 
-function copyToInput(text: string) {
+/**
+ * 将文本复制到输入框
+ * @param text 要复制的文本
+ * @param mode 模式：'replace' 替换，'append' 追加（默认）
+ */
+function copyToInput(text: string, mode: 'replace' | 'append' = 'append') {
   const messageText = String(text ?? '').trim();
   if (!messageText) return;
-  userInput.value = messageText;
+
+  const currentInput = userInput.value.trim();
+
+  if (mode === 'replace' || !currentInput) {
+    // 替换模式：直接替换现有内容
+    userInput.value = messageText;
+  } else {
+    // 追加模式：在现有内容后添加，用换行分隔
+    userInput.value = currentInput + '\n\n' + messageText;
+  }
+
   toastr.success('修改信息已复制进入对话框');
 }
 
@@ -1182,7 +1219,7 @@ function onCopyToInputEvent(event: Event) {
   const customEvent = event as CustomEvent<{ message?: string }>;
   const messageText = String(customEvent.detail?.message ?? '').trim();
   if (!messageText) return;
-  copyToInput(messageText);
+  copyToInput(messageText, 'append'); // 使用追加模式，不影响现有内容
 }
 
 async function onModalComplete() {
@@ -1243,10 +1280,12 @@ async function onModalComplete() {
       toastr.warning('未知的弹窗类型或缺少数据');
       return;
     }
-    // 将生成的文本放入前端输入框
+
+    // 将生成的文本放入前端输入框（追加模式，不影响现有内容）
     if (messageText) {
-      copyToInput(messageText);
-      // 按你的要求：和其他一样写入对话框（创建一条 user 消息）
+      copyToInput(messageText, 'append');
+
+      // 角色心理/性癖编辑：同时写入对话框（创建一条 user 消息）
       if (type === 'edit_character_mind' || type === 'edit_character_fetish') {
         try {
           const { sendToDialog } = await import('./utils/dialogAndVariable');
@@ -1449,7 +1488,7 @@ async function sendMessage() {
   let streamSubscriptionSuccess = false;
   let isThinkingComplete = false; // 标记是否已完成 thinking 标签的过滤
 
-  // 检测当前输出模式
+  // 检测当前输出模式（正常游戏使用）
   let isDualMode = false;
   let secondaryApiConfig: any = null;
   try {
@@ -1517,11 +1556,14 @@ async function sendMessage() {
     }
 
     // 先将用户输入写入聊天楼层，便于重 roll 时找到对应的 userMessageId
+    // 发送完整 MVU 格式，统一数据格式
     if (typeof createChatMessages === 'function') {
-      const mvuData = { stat_data: {}, display_data: {}, delta_data: {} };
+      let mvuData = { stat_data: {}, display_data: {}, delta_data: {} };
       try {
         const baseData = Mvu.getMvuData({ type: 'message', message_id: 'latest' });
-        if (baseData) Object.assign(mvuData, baseData);
+        if (baseData) {
+          mvuData = baseData;
+        }
       } catch (e) {
         // 忽略
       }
@@ -1544,16 +1586,15 @@ async function sendMessage() {
     });
     console.log('✅ [App] generate 完成，结果长度:', result?.length || 0);
 
-    // 双API模式：调用第二API处理变量
+    // 双API模式：调用第二API处理变量（正常游戏流程）
     if (isDualMode && result) {
       try {
         const { processWithSecondaryApi } = await import('./utils/apiSettings');
         if (isSecondaryApiConfigured(secondaryApiConfig)) {
           console.log('🔄 [App] 双API模式：调用第二API处理变量...');
 
-          // 提取 maintext 内容
-          const maintextMatch = result.match(/<maintext>([\s\S]*?)<\/maintext>/i);
-          const maintext = maintextMatch ? maintextMatch[1].trim() : '';
+          // 提取 maintext（与 parseMaintext 一致：最后一对闭标签从后往前配对）
+          const maintext = parseMaintext(extractFilteredContent(result));
 
           if (maintext) {
             const variableUpdate = await processWithSecondaryApi(maintext, secondaryApiConfig);
@@ -1640,9 +1681,24 @@ async function selectOption(optionId: string) {
 
   console.log('📝 [App] 选择选项:', optionId, option.text);
 
-  // 将选项文本填入输入框并发送
-  userInput.value = option.text;
-  await sendMessage();
+  // 获取输入行为模式设置
+  const { getInputActionMode } = await import('./utils/otherSettings');
+  const inputActionMode = await getInputActionMode();
+
+  if (inputActionMode === 'send') {
+    // 直接发送模式：替换输入框内容并立即发送
+    userInput.value = option.text;
+    await sendMessage();
+  } else {
+    // 追加到输入框模式（默认）：追加到现有内容
+    const currentInput = userInput.value.trim();
+    if (currentInput) {
+      userInput.value = currentInput + '\n\n' + option.text;
+    } else {
+      userInput.value = option.text;
+    }
+    toastr.success('选项已追加到输入框');
+  }
 }
 
 // 切换选项列表展开/折叠
@@ -1858,12 +1914,11 @@ async function handleRegenerate() {
       should_stream: true,
     });
 
-    // 双API模式：调用第二API处理变量
+    // 双API模式：调用第二API处理变量（重roll流程与正常游戏一致）
     if (isDualMode && result && isSecondaryApiConfigured(secondaryApiConfig)) {
       try {
         const { processWithSecondaryApi } = await import('./utils/apiSettings');
-        const maintextMatch = result.match(/<maintext>([\s\S]*?)<\/maintext>/i);
-        const maintext = maintextMatch ? maintextMatch[1].trim() : '';
+        const maintext = parseMaintext(extractFilteredContent(result));
 
         if (maintext) {
           const variableUpdate = await processWithSecondaryApi(maintext, secondaryApiConfig);
@@ -1897,11 +1952,23 @@ async function handleRegenerate() {
 }
 
 function extractLastTagContent(text: string, tag: string): string {
-  const re = new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, 'gi');
-  const matches = Array.from(text.matchAll(re));
-  if (matches.length === 0) return '';
-  const last = matches[matches.length - 1];
-  return (last?.[1] ?? '').trim();
+  if (!text) return '';
+  // 从后往前找：先找最后一个闭合标签，再找它前面最近的开标签
+  const closeTag = `</${tag}>`;
+  const closeIdx = text.toLowerCase().lastIndexOf(closeTag.toLowerCase());
+  if (closeIdx === -1) return '';
+
+  const openTagPattern = new RegExp(`<${tag}(\\s+[^>]*)?>`, 'i');
+  const textBeforeClose = text.slice(0, closeIdx);
+  // 从 closeIdx 往前找最后一个开标签
+  const lastOpenMatch = textBeforeClose.match(new RegExp(`<${tag}(\\s+[^>]*)?>`, 'gi'));
+  if (!lastOpenMatch || lastOpenMatch.length === 0) return '';
+
+  const lastOpenTag = lastOpenMatch[lastOpenMatch.length - 1];
+  const openIdx = textBeforeClose.lastIndexOf(lastOpenTag);
+  if (openIdx === -1) return '';
+
+  return text.slice(openIdx + lastOpenTag.length, closeIdx).trim();
 }
 
 async function handleRegenerateVariablesOnly() {
@@ -1918,7 +1985,7 @@ async function handleRegenerateVariablesOnly() {
   }
 
   const filtered = extractFilteredContent(info.fullMessage);
-  const maintext = extractLastTagContent(filtered, 'maintext');
+  const maintext = parseMaintext(filtered);
   if (!maintext) {
     toastr.warning('无法重roll变量：未找到 <maintext> 内容');
     contextMenu.value = null;
@@ -2157,8 +2224,8 @@ function handleEdit() {
     return;
   }
 
-  const maintextMatch = info.fullMessage.match(/<maintext>([\s\S]*?)<\/maintext>/i);
-  if (!maintextMatch) {
+  const maintextInner = parseMaintext(info.fullMessage);
+  if (!maintextInner) {
     toastr.warning('无法提取要编辑的正文内容');
     contextMenu.value = null;
     return;
@@ -2168,7 +2235,7 @@ function handleEdit() {
     messageId: info.messageId,
     fullMessage: info.fullMessage,
   };
-  editingText.value = maintextMatch[1].trim();
+  editingText.value = maintextInner;
   contextMenu.value = null;
 }
 
@@ -2209,10 +2276,7 @@ async function handleSaveEdit() {
   try {
     const { messageId, fullMessage } = editingMessage.value;
     const currentText = editingText.value;
-    const updatedMessage = fullMessage.replace(
-      /<maintext>[\s\S]*?<\/maintext>/i,
-      () => `<maintext>${currentText}</maintext>`
-    );
+    const updatedMessage = replaceLastMaintextInnerContent(fullMessage, currentText);
     await setChatMessages(
       [{ message_id: messageId, message: updatedMessage }],
       { refresh: 'affected' }
@@ -2440,11 +2504,9 @@ async function onTagDialogIgnore() {
     await recordAssistantMessage(snapshotRaw);
     await normalizeLatestChineseStatData();
 
-    if (wasOpeningPhase && typeof getLastMessageId === 'function') {
-      const assistantId = getLastMessageId();
-      await refineOpeningAssistantWithSecondaryApi(snapshotRaw, assistantId);
-      await normalizeLatestChineseStatData();
-    }
+    // 注意：开场白不再手动调用 refineOpeningAssistantWithSecondaryApi
+    // 让MVU框架自动触发额外模型解析
+    // 开场白生成时已通过第二API处理变量，此处直接写入楼层即可
   } finally {
     isVariablePersistInProgress.value = false;
   }
@@ -2591,31 +2653,29 @@ async function refineOpeningAssistantWithSecondaryApi(
 async function recordAssistantMessage(message: string) {
   try {
     if (typeof createChatMessages === 'function') {
-      // 准备数据
-      const mvuData = { stat_data: {}, display_data: {}, delta_data: {} };
+      // 准备数据 - 使用完整 MVU 格式
+      let finalData = { stat_data: {}, display_data: {}, delta_data: {} };
       let baseData: any = null;
       try {
         baseData = Mvu.getMvuData({ type: 'message', message_id: 'latest' });
-        if (baseData) Object.assign(mvuData, baseData);
+        if (baseData) {
+          finalData = baseData;
+        }
       } catch (e) {
         // 忽略错误
       }
 
       // 关键：解析 <UpdateVariable>，把 JSONPatch 应用到 MVU 数据中
-      let finalData: any = mvuData;
       try {
         await waitGlobalInitialized('Mvu');
         if (typeof Mvu?.parseMessage === 'function' && baseData) {
           const parsed = await Mvu.parseMessage(message, baseData);
           if (parsed && typeof parsed === 'object') {
-            finalData = parsed;
-          } else {
-            finalData = baseData;
+            finalData = parsed;  // 使用解析后的完整 MVU 数据
           }
         }
       } catch (e) {
         console.warn('⚠️ [App] 解析 <UpdateVariable> 失败，将使用原始变量数据写入:', e);
-        finalData = baseData ?? mvuData;
       }
 
       await createChatMessages(
@@ -2623,7 +2683,7 @@ async function recordAssistantMessage(message: string) {
           {
             role: 'assistant',
             message: message,
-            data: finalData,
+            data: finalData,  // 发送完整 MVU 格式
           },
         ],
         { refresh: 'none' },
@@ -2643,9 +2703,37 @@ async function recordAssistantMessage(message: string) {
   }
 }
 
+/** 挂载时唯一入口：从 store 合并 uiLayout 并做安全兜底（开局与游戏中共用，避免重复异步读覆盖） */
+function loadUiLayoutFromGameData(): void {
+  try {
+    // 使用静态导入的 useDataStore
+    const store = useDataStore();
+    // player 数据可能在 MVU 变量中，通过 store.data 访问
+    const player = (store.data as any).player;
+    if (!player?.settings?.uiLayout) {
+      // 无存档：用兜底固定值 600（用户从未设置过高度时，给个稳定初始值）
+      uiLayout.value.maxHeight = 600;
+      return;
+    }
+    const incoming = player.settings.uiLayout as Partial<UiLayoutSettings>;
+    uiLayout.value = { ...uiLayout.value, ...incoming };
+    const safeScale = Number(uiLayout.value.scale);
+    const safeMaxWidth = Number(uiLayout.value.maxWidth);
+    const safeMaxHeight = Number(uiLayout.value.maxHeight);
+    uiLayout.value.scale = Number.isFinite(safeScale) ? Math.min(1.3, Math.max(0.8, safeScale)) : 0.8;
+    uiLayout.value.maxWidth = Number.isFinite(safeMaxWidth) ? Math.min(2400, Math.max(800, safeMaxWidth)) : 900;
+    uiLayout.value.maxHeight = clampMainUiHeightPx(safeMaxHeight);
+  } catch (e) {
+    console.warn('⚠️ [App] 读取 uiLayout 设置失败:', e);
+    uiLayout.value.maxHeight = 600; // 出错也给个兜底值，避免 auto 无限撑高
+  }
+}
+
 // 检查游戏阶段
 async function checkGamePhase() {
   try {
+    await loadUiLayoutFromGameData();
+
     const lastMessageId = getLastMessageId();
     console.log('📊 [App] 当前楼层数:', lastMessageId);
 
@@ -2657,23 +2745,6 @@ async function checkGamePhase() {
       // 已有游戏进度，直接进入游戏
       console.log('🎮 [App] 检测到已有游戏，进入游戏界面');
       gamePhase.value = GamePhase.GAME;
-
-      // 已有游戏进度进入时，也做布局安全兜底（防止之前保存了异常值）
-      try {
-        const { readGameData } = await import('./utils/variableReader');
-        const gameData = await readGameData();
-        if (gameData?.player?.settings?.uiLayout) {
-          uiLayout.value = { ...uiLayout.value, ...gameData.player.settings.uiLayout };
-          // 安全兜底：避免异常数据导致布局极端变窄
-          const safeMaxWidth = Number(uiLayout.value.maxWidth);
-          if (!Number.isFinite(safeMaxWidth) || safeMaxWidth < 800) {
-            uiLayout.value.maxWidth = 900; // 与设置面板最小宽度一致
-            console.log('⚠️ [App] 已有游戏：检测到异常maxWidth，已重置为900');
-          }
-        }
-      } catch (e) {
-        console.warn('⚠️ [App] 已有游戏读取布局设置失败:', e);
-      }
 
       // 修正历史遗留的变量套娃：stat_data.stat_data -> stat_data
       await normalizeLatestChineseStatData();
@@ -2828,11 +2899,14 @@ async function handleOpeningSubmit(formData: OpeningFormData) {
       }
 
       // 先将用户输入写入聊天楼层（便于重 roll）
+      // 发送完整 MVU 格式，统一数据格式
       if (typeof createChatMessages === 'function') {
-        const mvuData = { stat_data: {}, display_data: {}, delta_data: {} };
+        let mvuData = { stat_data: {}, display_data: {}, delta_data: {} };
         try {
           const baseData = Mvu.getMvuData({ type: 'message', message_id: 'latest' });
-          if (baseData) Object.assign(mvuData, baseData);
+          if (baseData) {
+            mvuData = baseData;
+          }
         } catch (e) { /* 忽略 */ }
         await createChatMessages(
           [{ role: 'user', message: userPrompt, data: mvuData }],
@@ -2855,8 +2929,7 @@ async function handleOpeningSubmit(formData: OpeningFormData) {
       if (isDualMode && result && isSecondaryApiConfigured(secondaryApiConfig)) {
         try {
           const { processWithSecondaryApi } = await import('./utils/apiSettings');
-          const maintextMatch = result.match(/<maintext>([\s\S]*?)<\/maintext>/i);
-          const maintext = maintextMatch ? maintextMatch[1].trim() : '';
+          const maintext = parseMaintext(extractFilteredContent(result));
 
           if (maintext) {
             const variableUpdate = await processWithSecondaryApi(maintext, secondaryApiConfig);
@@ -2934,29 +3007,44 @@ function onPageShowStaleUserCheck() {
 }
 
 onMounted(() => {
-  // 检查游戏阶段并加载内容
-  checkGamePhase();
+  // 等待 store 数据就绪
+  const store = useDataStore();
+  let unwatch: (() => void) | null = null;
 
-  // 读取界面布局设置（最大宽高/缩放）
-  (async () => {
-    try {
-      const { readGameData } = await import('./utils/variableReader');
-      const gameData = await readGameData();
-      if (gameData?.player?.settings?.uiLayout) {
-        uiLayout.value = { ...uiLayout.value, ...gameData.player.settings.uiLayout };
-        // 安全兜底：避免异常数据导致布局极端变窄/变扁
-        const safeScale = Number(uiLayout.value.scale);
-        const safeMaxWidth = Number(uiLayout.value.maxWidth);
-        const safeMaxHeight = Number(uiLayout.value.maxHeight);
-        uiLayout.value.scale = Number.isFinite(safeScale) ? Math.min(1.3, Math.max(0.8, safeScale)) : 0.8;
-        // 最小宽度 800：避免变量里写入过小值导致界面缩成一条
-        uiLayout.value.maxWidth = Number.isFinite(safeMaxWidth) ? Math.min(2400, Math.max(800, safeMaxWidth)) : 900;
-        uiLayout.value.maxHeight = Number.isFinite(safeMaxHeight) ? Math.max(400, safeMaxHeight) : 400;
+  // 先检查一次数据
+  const checkData = () => {
+    const newData = store.data;
+    const hasData = newData && (
+      (newData.角色档案 && Object.keys(newData.角色档案).length > 0) ||
+      (newData.世界规则 && Object.keys(newData.世界规则).length > 0) ||
+      (newData.openingConfig?.selectedRules?.length > 0)
+    );
+    if (hasData) {
+      isStoreReady.value = true;
+      if (unwatch) {
+        unwatch();
+        unwatch = null;
       }
-    } catch (e) {
-      console.warn('⚠️ [App] 读取 uiLayout 设置失败:', e);
+      console.log('✅ [App] Store 数据就绪');
+      return true;
     }
-  })();
+    return false;
+  };
+
+  // 立即检查一次
+  if (!checkData()) {
+    // 如果数据还没准备好，启动 watch 监听变化
+    unwatch = watch(
+      () => store.data,
+      () => {
+        checkData();
+      },
+      { deep: true }
+    );
+  }
+
+  // 检查游戏阶段并加载内容（内含唯一一次 loadUiLayoutFromGameData）
+  void checkGamePhase();
 
   // 监听全屏变化事件
   document.addEventListener('fullscreenchange', onFullscreenChange);
@@ -3010,6 +3098,7 @@ onUnmounted(() => {
   }
   stopIframeHeightFix?.();
   stopIframeHeightFix = null;
+  lastIframeMinHeightApplied = null;
 });
 </script>
 
@@ -3025,6 +3114,8 @@ onUnmounted(() => {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   font-size: calc(14px * var(--ui-scale, 1));
   line-height: 1.5;
+  // 布局水合前给个平滑过渡，避免从 auto 到固定值的硬跳
+  transition: opacity 120ms ease, height 120ms ease;
 
   // 全局CSS变量，用于整体UI缩放
   --space-xs: calc(4px * var(--ui-scale, 1));
@@ -3053,6 +3144,12 @@ onUnmounted(() => {
   &.light {
     background: #f4f4f5;
     color: #18181b;
+  }
+
+  // 布局尚未水合：先用最小高度撑住，并微微透明减少视觉存在感
+  &.layout-pending {
+    min-height: 600px;
+    opacity: 0.85;
   }
 }
 

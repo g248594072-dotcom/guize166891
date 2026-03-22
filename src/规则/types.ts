@@ -248,3 +248,16 @@ export interface PanelConfig {
   title: string;
   component: string;
 }
+
+// ==================== 其他设置 ====================
+
+export type InputActionMode = 'send' | 'append';
+
+export interface OtherSettings {
+  /** 输入框行为模式：'send' 直接发送，'append' 追加到输入框 */
+  inputActionMode: InputActionMode;
+}
+
+export const DEFAULT_OTHER_SETTINGS: OtherSettings = {
+  inputActionMode: 'append', // 默认使用追加模式（更安全，不自动发送）
+};

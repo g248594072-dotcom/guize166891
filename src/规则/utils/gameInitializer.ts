@@ -266,12 +266,13 @@ export async function createOpeningStoryMessage(formData: OpeningFormData): Prom
     }
 
     // 创建user消息请求AI生成初始内容
+    // 发送完整 MVU 格式，统一数据格式
     await createChatMessages(
       [
         {
           role: 'user',
           message: promptContent,
-          data: layer0Data,
+          data: layer0Data,  // 发送完整 MVU 格式 { stat_data, display_data, delta_data }
         },
       ],
       {
