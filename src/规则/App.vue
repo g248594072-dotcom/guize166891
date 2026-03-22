@@ -1186,10 +1186,25 @@ function closeModal() {
   modalPayload.value = null;
 }
 
-function copyToInput(text: string) {
+/**
+ * 将文本复制到输入框
+ * @param text 要复制的文本
+ * @param mode 模式：'replace' 替换，'append' 追加（默认）
+ */
+function copyToInput(text: string, mode: 'replace' | 'append' = 'append') {
   const messageText = String(text ?? '').trim();
   if (!messageText) return;
-  userInput.value = messageText;
+
+  const currentInput = userInput.value.trim();
+
+  if (mode === 'replace' || !currentInput) {
+    // 替换模式：直接替换现有内容
+    userInput.value = messageText;
+  } else {
+    // 追加模式：在现有内容后添加，用换行分隔
+    userInput.value = currentInput + '\n\n' + messageText;
+  }
+
   toastr.success('修改信息已复制进入对话框');
 }
 
@@ -1197,7 +1212,7 @@ function onCopyToInputEvent(event: Event) {
   const customEvent = event as CustomEvent<{ message?: string }>;
   const messageText = String(customEvent.detail?.message ?? '').trim();
   if (!messageText) return;
-  copyToInput(messageText);
+  copyToInput(messageText, 'append'); // 使用追加模式，不影响现有内容
 }
 
 async function onModalComplete() {
@@ -1258,10 +1273,12 @@ async function onModalComplete() {
       toastr.warning('未知的弹窗类型或缺少数据');
       return;
     }
-    // 将生成的文本放入前端输入框
+
+    // 将生成的文本放入前端输入框（追加模式，不影响现有内容）
     if (messageText) {
-      copyToInput(messageText);
-      // 按你的要求：和其他一样写入对话框（创建一条 user 消息）
+      copyToInput(messageText, 'append');
+
+      // 角色心理/性癖编辑：同时写入对话框（创建一条 user 消息）
       if (type === 'edit_character_mind' || type === 'edit_character_fetish') {
         try {
           const { sendToDialog } = await import('./utils/dialogAndVariable');
@@ -1654,9 +1671,24 @@ async function selectOption(optionId: string) {
 
   console.log('📝 [App] 选择选项:', optionId, option.text);
 
-  // 将选项文本填入输入框并发送
-  userInput.value = option.text;
-  await sendMessage();
+  // 获取输入行为模式设置
+  const { getInputActionMode } = await import('./utils/otherSettings');
+  const inputActionMode = await getInputActionMode();
+
+  if (inputActionMode === 'send') {
+    // 直接发送模式：替换输入框内容并立即发送
+    userInput.value = option.text;
+    await sendMessage();
+  } else {
+    // 追加到输入框模式（默认）：追加到现有内容
+    const currentInput = userInput.value.trim();
+    if (currentInput) {
+      userInput.value = currentInput + '\n\n' + option.text;
+    } else {
+      userInput.value = option.text;
+    }
+    toastr.success('选项已追加到输入框');
+  }
 }
 
 // 切换选项列表展开/折叠
