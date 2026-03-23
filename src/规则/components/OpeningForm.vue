@@ -1,42 +1,232 @@
 <template>
-  <div class="opening-form" :class="{ 'dark': isDarkMode, 'light': !isDarkMode }">
+  <div class="opening-form cyber-bg" :class="{ 'dark': isDarkMode, 'light': !isDarkMode }">
+    <!-- 赛博朋克特效层 -->
+    <ParallaxBackground />
+    <TerminalSnippets />
+    <CoordinateTracker />
+
     <!-- 书本容器 -->
-    <div class="book-container" :class="{ 'flipping': isFlipping }">
+    <div class="book-container glass-panel chromatic-border" :class="{ 'flipping': isFlipping }">
+      <!-- 破碎玻璃效果 -->
+      <ShatteredGlassEffect />
+
+      <!-- HUD 边框装饰 -->
+      <div class="hud-decoration">
+        <!-- 四角标记 -->
+        <div class="corner-mark top-left">TL_01</div>
+        <div class="corner-mark top-right">TR_03</div>
+        <div class="corner-mark bottom-left">BL_02</div>
+        <div class="corner-mark bottom-right">BR_04</div>
+
+        <!-- 顶部 HUD -->
+        <div class="hud-top">
+          <div class="hud-line left"></div>
+          <div class="hud-label">
+            <span>[</span>
+            <span class="purple">SYS.CORE</span>
+            <span class="dim">//</span>
+            <span class="cyan">OVERRIDE</span>
+            <span>]</span>
+          </div>
+          <div class="hud-line right"></div>
+        </div>
+
+        <!-- 底部 HUD -->
+        <div class="hud-bottom">
+          <div class="data-blocks left">
+            <div v-for="i in 5" :key="i" class="data-block"></div>
+          </div>
+          <div class="hud-range">0x0000 <span class="dim">-</span> 0xFFFF</div>
+          <div class="data-blocks right">
+            <div v-for="i in 5" :key="i" class="data-block"></div>
+          </div>
+        </div>
+
+        <!-- 左侧 HUD -->
+        <div class="hud-side left">
+          <div class="side-line"></div>
+          <div class="side-dots">
+            <div v-for="i in 3" :key="i" class="side-dot"></div>
+          </div>
+          <div class="side-text purple">System.Core.Online</div>
+          <div class="side-line"></div>
+        </div>
+
+        <!-- 右侧 HUD -->
+        <div class="hud-side right">
+          <div class="side-line cyan"></div>
+          <div class="side-text cyan">Rule.Override.Ready</div>
+          <div class="side-dots">
+            <div v-for="i in 3" :key="i" class="side-dot cyan"></div>
+          </div>
+          <div class="side-line cyan"></div>
+        </div>
+
+        <!-- 底部数据条 -->
+        <div class="data-bars left">
+          <div v-for="i in 15" :key="i" class="data-bar" :style="{ height: getRandomHeight() + 'px' }"></div>
+        </div>
+        <div class="data-bars right">
+          <div v-for="i in 15" :key="i" class="data-bar cyan" :style="{ height: getRandomHeight() + 'px' }"></div>
+        </div>
+
+        <!-- 刻度尺 -->
+        <div class="ruler left">
+          <div v-for="i in 20" :key="i" class="ruler-mark" :class="{ long: i % 5 === 0 }"></div>
+        </div>
+        <div class="ruler right">
+          <div v-for="i in 20" :key="i" class="ruler-mark" :class="{ long: i % 5 === 0 }"></div>
+        </div>
+      </div>
+
       <!-- 封面 -->
       <div v-if="currentPage === 'cover'" class="book-page cover-page">
-        <div class="book-cover">
-          <div class="cover-decoration">
-            <div class="cover-border">
-              <div class="cover-inner">
-                <div class="book-icon">
-                  <i class="fa-solid fa-book-open"></i>
+        <!-- 左侧系统状态面板 -->
+        <div class="system-status-panel">
+          <div class="panel-section">
+            <div class="section-header">
+              <i class="fa-solid fa-microchip"></i>
+              <span class="chromatic-text">
+                <ScrambleText text="System.Status" />
+              </span>
+            </div>
+            <div class="status-list">
+              <div class="status-item">
+                <div class="status-label-row">
+                  <span class="chromatic-text">
+                    <ScrambleText text="Neural Sync" />
+                  </span>
+                  <span class="status-value">99.9%</span>
                 </div>
-                <h1 class="book-title">规则之书</h1>
-                <p class="book-subtitle">Rule.Modifier</p>
-                <div class="cover-divider"></div>
-                <p class="book-desc">在这个世界，规则即是力量</p>
+                <BlockProgress :value="100" :total-segments="20" color="bg-purple-500" />
+              </div>
+              <div class="status-item">
+                <div class="status-label-row">
+                  <span class="chromatic-text">
+                    <ScrambleText text="Reality Distortion" />
+                  </span>
+                  <span class="status-value">12.4%</span>
+                </div>
+                <BlockProgress :value="12" :total-segments="20" color="bg-cyan-500" />
+              </div>
+              <div class="status-item">
+                <div class="status-label-row">
+                  <span class="chromatic-text">
+                    <ScrambleText text="Active Directives" />
+                  </span>
+                  <span class="status-value">05</span>
+                </div>
+                <BlockProgress :value="50" :total-segments="20" color="bg-indigo-500" />
               </div>
             </div>
           </div>
-          <button class="start-btn" @click="goToPage('scene')">
-            <span>开始阅读</span>
-            <i class="fa-solid fa-arrow-right"></i>
-          </button>
-          <div class="cover-tools">
-            <button type="button" class="cover-tool-btn" @click="presetPickerOpen = true">
-              <i class="fa-solid fa-layer-group"></i>
-              读取开场预设
-            </button>
-            <button type="button" class="cover-tool-btn" @click="onExportJson">
-              <i class="fa-solid fa-file-export"></i>
-              导出 JSON
-            </button>
-            <button type="button" class="cover-tool-btn" @click="onPickImportJson">
-              <i class="fa-solid fa-file-import"></i>
-              导入 JSON
-            </button>
+
+          <div class="panel-section">
+            <div class="section-header">
+              <i class="fa-solid fa-database"></i>
+              <span class="chromatic-text">
+                <ScrambleText text="Core.Modules" />
+              </span>
+            </div>
+            <div class="module-tags">
+              <span v-for="mod in ['SCENE_GEN', 'RULE_ENFORCE', 'LOG_SYNC', 'MEM_DUMP']" :key="mod" class="module-tag chromatic-text">
+                <ScrambleText :text="mod" />
+              </span>
+            </div>
           </div>
         </div>
+
+        <!-- 中央书本卡片 -->
+        <div class="center-card-wrapper">
+          <div class="glow-border"></div>
+          <div class="center-card glass-panel">
+            <div class="card-inner-border"></div>
+            <div class="card-content">
+              <div class="book-icon-wrapper">
+                <div class="icon-glow"></div>
+                <i class="fa-solid fa-book-open book-icon"></i>
+              </div>
+              <h1 class="book-title chromatic-text">
+                <ScrambleText text="规则之书" />
+              </h1>
+              <p class="book-subtitle neon-text">
+                <ScrambleText text="Rule.Modifier" />
+              </p>
+              <p class="book-desc chromatic-text">
+                <ScrambleText text="在这个世界，规则即是力量" />
+              </p>
+            </div>
+          </div>
+
+          <!-- 开始按钮 -->
+          <div class="start-btn-wrapper">
+            <div class="btn-pulse-ring"></div>
+            <MagneticButton
+              custom-class="start-btn glass-panel chromatic-border chromatic-text"
+              @click="goToPage('scene')"
+            >
+              <ScrambleText text="开始阅读" />
+              <i class="fa-solid fa-arrow-right"></i>
+            </MagneticButton>
+          </div>
+        </div>
+
+        <!-- 右侧事件日志面板 -->
+        <div class="event-logs-panel">
+          <div class="panel-section">
+            <div class="section-header">
+              <i class="fa-solid fa-hexagon"></i>
+              <span class="chromatic-text">
+                <ScrambleText text="Event.Logs" />
+              </span>
+            </div>
+            <div class="logs-list">
+              <div v-for="(log, i) in eventLogs" :key="i" class="log-item">
+                <span class="log-time">[{{ log.time }}]</span>
+                <span class="log-msg" :class="{ highlight: log.highlight }">
+                  <ScrambleText :text="log.msg" />
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel-section">
+            <div class="section-header">
+              <i class="fa-solid fa-database"></i>
+              <span class="chromatic-text">
+                <ScrambleText text="Quick.Stats" />
+              </span>
+            </div>
+            <div class="stats-grid">
+              <div class="stat-card">
+                <div class="stat-value cyan">24</div>
+                <div class="stat-label chromatic-text">
+                  <ScrambleText text="Scenes" />
+                </div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value purple">128</div>
+                <div class="stat-label chromatic-text">
+                  <ScrambleText text="Rules" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 底部工具栏 -->
+        <div class="bottom-tools">
+          <MagneticButton
+            v-for="tool in bottomTools"
+            :key="tool.action"
+            custom-class="tool-btn glass-panel chromatic-text"
+            @click="tool.handler"
+          >
+            <i :class="tool.icon"></i>
+            <ScrambleText :text="tool.label" />
+          </MagneticButton>
+        </div>
+
       </div>
 
       <!-- 场景选择页 -->
@@ -329,7 +519,7 @@
       </div>
 
       <!-- 确认页 -->
-      <div v-else-if="currentPage === 'confirm'" class="book-page content-page">
+      <div v-else-if="currentPage === 'confirm'" class="book-page content-page confirm-page">
         <div class="page-header">
           <button class="nav-btn back-btn" @click="goToPage('opening_detail')">
             <i class="fa-solid fa-arrow-left"></i>
@@ -337,7 +527,7 @@
           <span class="page-number">开局场景准备开始~</span>
           <div class="nav-btn placeholder"></div>
         </div>
-        <div class="page-content">
+        <div class="page-content confirm-content">
           <h2 class="chapter-title">开局场景准备开始~</h2>
           <p class="chapter-desc">确认你的设定，开启这段旅程...</p>
 
@@ -360,28 +550,40 @@
             </div>
           </div>
 
-          <div class="confirm-presets-row">
-            <button type="button" class="preset-action-btn" @click="savePresetDialogOpen = true">
-              <i class="fa-solid fa-floppy-disk"></i>
-              保存为开场预设
-            </button>
-            <button type="button" class="preset-action-btn" @click="presetPickerOpen = true">
-              <i class="fa-solid fa-folder-open"></i>
-              读取开场预设
-            </button>
-          </div>
-
           <div class="confirm-actions">
             <button
-              class="confirm-btn"
+              class="confirm-btn cyber-start-btn"
               :disabled="!canSubmit || isSubmitting"
               @click="handleSubmit"
             >
-              <i v-if="isSubmitting" class="fa-solid fa-circle-notch fa-spin"></i>
-              <span v-else>开始游戏</span>
+              <span class="btn-glow"></span>
+              <span class="btn-content">
+                <i v-if="isSubmitting" class="fa-solid fa-circle-notch fa-spin"></i>
+                <span v-else>
+                  <i class="fa-solid fa-play"></i>
+                  开始游戏
+                </span>
+              </span>
+              <span class="btn-particles">
+                <span class="particle"></span>
+                <span class="particle"></span>
+                <span class="particle"></span>
+              </span>
             </button>
             <p v-if="!canSubmit" class="hint-text">请选择一个场景或填写自定义场景描述</p>
           </div>
+        </div>
+
+        <!-- 底部预设按钮 -->
+        <div class="confirm-presets-bar">
+          <button type="button" class="preset-action-btn cyber-preset-btn" @click="savePresetDialogOpen = true">
+            <i class="fa-solid fa-floppy-disk"></i>
+            <span>保存为开场预设</span>
+          </button>
+          <button type="button" class="preset-action-btn cyber-preset-btn" @click="presetPickerOpen = true">
+            <i class="fa-solid fa-folder-open"></i>
+            <span>读取开场预设</span>
+          </button>
         </div>
       </div>
     </div>
@@ -618,6 +820,15 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue';
 import type { OpeningFormData } from '../types';
+
+// 赛博朋克特效组件
+import ParallaxBackground from './ParallaxBackground.vue';
+import TerminalSnippets from './TerminalSnippets.vue';
+import CoordinateTracker from './CoordinateTracker.vue';
+import ShatteredGlassEffect from './ShatteredGlassEffect.vue';
+import MagneticButton from './MagneticButton.vue';
+import ScrambleText from './ScrambleText.vue';
+import BlockProgress from './BlockProgress.vue';
 import { clearChronicle } from '../utils/chronicleUpdater';
 import {
   type RuleSnippet,
@@ -639,6 +850,23 @@ const emit = defineEmits<{
 
 // 主题
 const isDarkMode = ref(true);
+
+// 事件日志数据
+const eventLogs = [
+  { time: '00:00', msg: 'System initialized.', highlight: false },
+  { time: '00:01', msg: 'Reality anchor stabilized.', highlight: false },
+  { time: '00:03', msg: 'Awaiting user input...', highlight: true },
+];
+
+// 底部工具按钮
+const bottomTools = [
+  { action: 'preset', label: '读取开场预设', icon: 'fa-solid fa-database', handler: () => presetPickerOpen.value = true },
+  { action: 'export', label: '导出 JSON', icon: 'fa-solid fa-upload', handler: onExportJson },
+  { action: 'import', label: '导入 JSON', icon: 'fa-solid fa-download', handler: onPickImportJson },
+];
+
+// 随机高度（数据条动画）
+const getRandomHeight = () => Math.floor(Math.random() * 30) + 10;
 
 // 页面状态
 const currentPage = ref<'cover' | 'scene' | 'rules' | 'characters' | 'opening_detail' | 'confirm'>('cover');
@@ -1162,6 +1390,667 @@ async function handleSubmit() {
 </script>
 
 <style lang="scss" scoped>
+@use '../styles/cyber-effects' as *;
+
+// ===== 赛博朋克风格封面页 =====
+.opening-form {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  position: relative;
+  overflow: hidden;
+
+  &.dark {
+    background: #050508;
+  }
+}
+
+// 书本容器
+.book-container {
+  width: 100%;
+  max-width: 1400px;
+  height: 85vh;
+  max-height: 900px;
+  position: relative;
+  border-radius: 28px;
+  overflow: hidden;
+  margin: 0 auto;
+}
+
+// HUD 装饰
+.hud-decoration {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+
+  // 四角标记
+  .corner-mark {
+    position: absolute;
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    color: rgba(168, 85, 247, 0.5);
+
+    &.top-left {
+      top: 24px;
+      left: 24px;
+
+      &::before {
+        content: '';
+        position: absolute;
+        top: -8px;
+        left: -8px;
+        width: 32px;
+        height: 32px;
+        border-top: 2px solid rgba(168, 85, 247, 0.4);
+        border-left: 2px solid rgba(168, 85, 247, 0.4);
+        border-top-left-radius: 8px;
+      }
+    }
+
+    &.top-right {
+      top: 24px;
+      right: 24px;
+      color: rgba(6, 182, 212, 0.5);
+
+      &::before {
+        content: '';
+        position: absolute;
+        top: -8px;
+        right: -8px;
+        width: 32px;
+        height: 32px;
+        border-top: 2px solid rgba(6, 182, 212, 0.4);
+        border-right: 2px solid rgba(6, 182, 212, 0.4);
+        border-top-right-radius: 8px;
+      }
+    }
+
+    &.bottom-left {
+      bottom: 24px;
+      left: 24px;
+
+      &::before {
+        content: '';
+        position: absolute;
+        bottom: -8px;
+        left: -8px;
+        width: 32px;
+        height: 32px;
+        border-bottom: 2px solid rgba(168, 85, 247, 0.4);
+        border-left: 2px solid rgba(168, 85, 247, 0.4);
+        border-bottom-left-radius: 8px;
+      }
+    }
+
+    &.bottom-right {
+      bottom: 24px;
+      right: 24px;
+      color: rgba(6, 182, 212, 0.5);
+
+      &::before {
+        content: '';
+        position: absolute;
+        bottom: -8px;
+        right: -8px;
+        width: 32px;
+        height: 32px;
+        border-bottom: 2px solid rgba(6, 182, 212, 0.4);
+        border-right: 2px solid rgba(6, 182, 212, 0.4);
+        border-bottom-right-radius: 8px;
+      }
+    }
+  }
+
+  // 顶部 HUD
+  .hud-top {
+    position: absolute;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    opacity: 0.6;
+
+    .hud-line {
+      height: 1px;
+      width: 120px;
+      background: linear-gradient(90deg, transparent, rgba(168, 85, 247, 0.5));
+
+      &.right {
+        background: linear-gradient(90deg, rgba(6, 182, 212, 0.5), transparent);
+      }
+    }
+
+    .hud-label {
+      font-family: 'Courier New', monospace;
+      font-size: 10px;
+      letter-spacing: 0.3em;
+      display: flex;
+      gap: 4px;
+      color: rgba(255, 255, 255, 0.5);
+
+      .purple { color: rgba(168, 85, 247, 0.8); }
+      .cyan { color: rgba(6, 182, 212, 0.8); }
+      .dim { color: rgba(255, 255, 255, 0.3); }
+    }
+  }
+
+  // 底部 HUD
+  .hud-bottom {
+    position: absolute;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 32px;
+    opacity: 0.6;
+
+    .data-blocks {
+      display: flex;
+      gap: 4px;
+
+      .data-block {
+        width: 8px;
+        height: 4px;
+        background: rgba(168, 85, 247, 0.4);
+
+        &.right .data-block {
+          background: rgba(6, 182, 212, 0.4);
+        }
+      }
+    }
+
+    .hud-range {
+      font-family: 'Courier New', monospace;
+      font-size: 10px;
+      color: rgba(255, 255, 255, 0.5);
+      letter-spacing: 0.1em;
+
+      .dim { color: rgba(6, 182, 212, 0.5); }
+    }
+  }
+
+  // 侧边 HUD
+  .hud-side {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    opacity: 0.6;
+
+    &.left { left: 24px; }
+    &.right { right: 24px; }
+
+    .side-line {
+      width: 1px;
+      height: 120px;
+      background: linear-gradient(to bottom, transparent, rgba(168, 85, 247, 0.5), rgba(168, 85, 247, 0.8));
+
+      &.cyan {
+        background: linear-gradient(to bottom, transparent, rgba(6, 182, 212, 0.5), rgba(6, 182, 212, 0.8));
+      }
+    }
+
+    .side-dots {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+
+      .side-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: rgba(168, 85, 247, 0.6);
+        box-shadow: 0 0 8px rgba(168, 85, 247, 0.8);
+        animation: pulse-dot 2s ease-in-out infinite;
+
+        @for $i from 1 through 3 {
+          &:nth-child(#{$i}) {
+            animation-delay: #{$i * 0.3}s;
+          }
+        }
+
+        &.cyan {
+          background: rgba(6, 182, 212, 0.6);
+          box-shadow: 0 0 8px rgba(6, 182, 212, 0.8);
+        }
+      }
+    }
+
+    .side-text {
+      font-family: 'Courier New', monospace;
+      font-size: 10px;
+      letter-spacing: 0.4em;
+      writing-mode: vertical-rl;
+      text-orientation: mixed;
+      padding: 16px 0;
+
+      &.purple {
+        color: rgba(168, 85, 247, 0.6);
+        transform: rotate(180deg);
+      }
+
+      &.cyan {
+        color: rgba(6, 182, 212, 0.6);
+      }
+    }
+  }
+
+  // 数据条
+  .data-bars {
+    position: absolute;
+    bottom: 64px;
+    display: flex;
+    gap: 4px;
+    opacity: 0.3;
+
+    &.left { left: 48px; }
+    &.right { right: 48px; }
+
+    .data-bar {
+      width: 4px;
+      background: rgba(168, 85, 247, 0.6);
+      border-radius: 2px 2px 0 0;
+      animation: data-bar-pulse 2s ease-in-out infinite;
+
+      &.cyan { background: rgba(6, 182, 212, 0.6); }
+
+      @for $i from 1 through 15 {
+        &:nth-child(#{$i}) {
+          animation-delay: #{$i * 0.1}s;
+        }
+      }
+    }
+  }
+
+  // 刻度尺
+  .ruler {
+    position: absolute;
+    top: 25%;
+    bottom: 25%;
+    width: 8px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    opacity: 0.2;
+
+    &.left { left: 16px; }
+    &.right { right: 16px; align-items: flex-end; }
+
+    .ruler-mark {
+      height: 1px;
+      background: rgba(255, 255, 255, 0.5);
+      width: 50%;
+
+      &.long { width: 100%; }
+    }
+  }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
+@keyframes data-bar-pulse {
+  0%, 100% { height: 10px; }
+  50% { height: 40px; }
+}
+
+// 封面页布局 - 三列等宽对称布局
+.cover-page {
+  display: grid;
+  grid-template-columns: 1fr 420px 1fr;
+  grid-template-rows: 1fr auto;
+  gap: 40px;
+  padding: 48px 40px 40px;
+  height: 100%;
+  position: relative;
+  z-index: 10;
+  align-items: center;
+}
+
+// 系统状态面板（左侧）
+.system-status-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  opacity: 0.8;
+  max-width: 320px;
+  justify-self: end;
+
+  .panel-section {
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding-bottom: 12px;
+      margin-bottom: 16px;
+      border-bottom: 1px solid rgba(168, 85, 247, 0.3);
+      font-family: 'Courier New', monospace;
+      font-size: 11px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: rgba(168, 85, 247, 0.8);
+
+      i { font-size: 12px; }
+    }
+
+    .status-list {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+
+      .status-item {
+        .status-label-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 6px;
+          font-size: 11px;
+          font-family: 'Courier New', monospace;
+          text-transform: uppercase;
+          letter-spacing: 0.1em;
+
+          .status-value {
+            color: rgba(255, 255, 255, 0.8);
+            font-weight: 500;
+          }
+        }
+      }
+    }
+
+    .module-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+
+      .module-tag {
+        font-family: 'Courier New', monospace;
+        font-size: 10px;
+        padding: 4px 8px;
+        background: rgba(168, 85, 247, 0.1);
+        border: 1px solid rgba(168, 85, 247, 0.2);
+        border-radius: 4px;
+        color: rgba(168, 85, 247, 0.8);
+      }
+    }
+  }
+}
+
+// 中央卡片区域
+.center-card-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+
+  .glow-border {
+    position: absolute;
+    inset: -4px;
+    background: linear-gradient(90deg, rgba(168, 85, 247, 0.3), rgba(6, 182, 212, 0.3));
+    border-radius: 28px;
+    filter: blur(12px);
+    opacity: 0.5;
+    transition: opacity 0.3s;
+
+    &:hover { opacity: 0.8; }
+  }
+
+  .center-card {
+    position: relative;
+    width: 380px;
+    height: 420px;
+    border-radius: 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+
+    .card-inner-border {
+      position: absolute;
+      inset: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 16px;
+      pointer-events: none;
+
+      &::before {
+        content: '';
+        position: absolute;
+        inset: 16px;
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 12px;
+      }
+    }
+
+    .card-content {
+      text-align: center;
+      z-index: 1;
+
+      .book-icon-wrapper {
+        position: relative;
+        margin-bottom: 32px;
+
+        .icon-glow {
+          position: absolute;
+          inset: -20px;
+          background: rgba(6, 182, 212, 0.2);
+          border-radius: 50%;
+          filter: blur(20px);
+        }
+
+        .book-icon {
+          position: relative;
+          font-size: 64px;
+          color: rgba(255, 255, 255, 0.9);
+          text-shadow: 0 0 20px rgba(255, 255, 255, 0.5);
+        }
+      }
+
+      .book-title {
+        font-size: 40px;
+        font-weight: 700;
+        margin: 0 0 8px;
+        letter-spacing: 0.05em;
+      }
+
+      .book-subtitle {
+        font-size: 12px;
+        letter-spacing: 0.3em;
+        text-transform: uppercase;
+        margin: 0 0 32px;
+        font-weight: 600;
+      }
+
+      .book-desc {
+        font-size: 14px;
+        letter-spacing: 0.1em;
+        margin: 0;
+        opacity: 0.7;
+      }
+    }
+  }
+
+  // 开始按钮
+  .start-btn-wrapper {
+    position: relative;
+    margin-top: 40px;
+
+    .btn-pulse-ring {
+      position: absolute;
+      inset: -8px;
+      border-radius: 50px;
+      background: linear-gradient(90deg, rgba(168, 85, 247, 0.4), rgba(6, 182, 212, 0.4));
+      filter: blur(8px);
+      opacity: 0.5;
+      animation: pulse-ring 3s ease-out infinite;
+    }
+
+    .start-btn {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px 40px;
+      border-radius: 50px;
+      font-size: 16px;
+      font-weight: 500;
+      cursor: pointer;
+      border: 1px solid rgba(168, 85, 247, 0.3);
+      background: rgba(0, 0, 0, 0.4);
+      transition: all 0.3s;
+
+      &:hover {
+        border-color: rgba(168, 85, 247, 0.6);
+        box-shadow: 0 0 30px rgba(168, 85, 247, 0.3);
+      }
+
+      i {
+        transition: transform 0.3s;
+      }
+
+      &:hover i {
+        transform: translateX(4px);
+      }
+    }
+  }
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(1); opacity: 0.5; }
+  100% { transform: scale(1.3); opacity: 0; }
+}
+
+// 事件日志面板（右侧）
+.event-logs-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  opacity: 0.8;
+  max-width: 320px;
+  justify-self: start;
+
+  .panel-section {
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding-bottom: 12px;
+      margin-bottom: 16px;
+      border-bottom: 1px solid rgba(6, 182, 212, 0.3);
+      font-family: 'Courier New', monospace;
+      font-size: 11px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: rgba(6, 182, 212, 0.8);
+
+      i { font-size: 12px; }
+    }
+
+    .logs-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+
+      .log-item {
+        display: flex;
+        gap: 12px;
+        font-family: 'Courier New', monospace;
+        font-size: 11px;
+
+        .log-time {
+          color: rgba(255, 255, 255, 0.4);
+        }
+
+        .log-msg {
+          color: rgba(255, 255, 255, 0.6);
+
+          &.highlight {
+            color: rgba(6, 182, 212, 0.9);
+            text-shadow: 0 0 10px rgba(6, 182, 212, 0.5);
+          }
+        }
+      }
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+
+      .stat-card {
+        background: rgba(0, 0, 0, 0.2);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 8px;
+        padding: 16px;
+        text-align: center;
+
+        .stat-value {
+          font-size: 28px;
+          font-family: 'Courier New', monospace;
+          font-weight: bold;
+          margin-bottom: 4px;
+
+          &.cyan { color: rgba(6, 182, 212, 0.9); }
+          &.purple { color: rgba(168, 85, 247, 0.9); }
+        }
+
+        .stat-label {
+          font-size: 10px;
+          text-transform: uppercase;
+          letter-spacing: 0.1em;
+          opacity: 0.6;
+        }
+      }
+    }
+  }
+}
+
+// 底部工具栏
+.bottom-tools {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  margin-top: auto;
+
+  .tool-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 24px;
+    border-radius: 12px;
+    font-size: 13px;
+    cursor: pointer;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.03);
+    transition: all 0.3s;
+    color: rgba(255, 255, 255, 0.7);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.08);
+      border-color: rgba(255, 255, 255, 0.2);
+      color: rgba(255, 255, 255, 0.9);
+    }
+
+    i {
+      font-size: 14px;
+      opacity: 0.8;
+    }
+  }
+}
+
+// 原有样式（保留其他页面）
 .opening-form {
   --bg-0: #0b0c0f;
   --bg-1: #151820;
@@ -1401,19 +2290,59 @@ async function handleSubmit() {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 14px;
+  padding: 10px 16px;
   border-radius: 12px;
-  border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--text-soft);
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  background: rgba(168, 85, 247, 0.08);
+  color: rgba(168, 85, 247, 0.9);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.18s ease;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+  animation: toolbar-btn-pulse 3s ease-in-out infinite;
+
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(168, 85, 247, 0.2), rgba(6, 182, 212, 0.2));
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
 
   &:hover {
-    color: var(--text);
-    border-color: rgba(255, 255, 255, 0.24);
+    color: #fff;
+    border-color: rgba(6, 182, 212, 0.5);
+    transform: translateY(-2px);
+    box-shadow:
+      0 8px 20px rgba(168, 85, 247, 0.2),
+      0 0 15px rgba(6, 182, 212, 0.2);
+
+    &::before {
+      opacity: 1;
+    }
+  }
+
+  i {
+    position: relative;
+    z-index: 1;
+    font-size: 14px;
+  }
+}
+
+@keyframes toolbar-btn-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 5px rgba(168, 85, 247, 0.2),
+      inset 0 0 10px rgba(168, 85, 247, 0.05);
+  }
+  50% {
+    box-shadow:
+      0 0 15px rgba(168, 85, 247, 0.3),
+      0 0 25px rgba(6, 182, 212, 0.2),
+      inset 0 0 15px rgba(168, 85, 247, 0.1);
   }
 }
 
@@ -1443,12 +2372,8 @@ async function handleSubmit() {
   }
 }
 
-.confirm-presets-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  justify-content: center;
-  margin-bottom: 18px;
+.preset-action-btn-old {
+  display: none;
 }
 
 .preset-action-btn {
@@ -1591,39 +2516,98 @@ async function handleSubmit() {
 }
 
 .nav-btn {
-  width: 38px;
-  height: 38px;
+  width: 42px;
+  height: 42px;
   border-radius: 12px;
-  border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.02);
-  color: var(--text-soft);
+  border: 1px solid rgba(168, 85, 247, 0.4);
+  background: rgba(168, 85, 247, 0.1);
+  color: rgba(168, 85, 247, 0.9);
   cursor: pointer;
-  transition: all 0.18s ease;
+  transition: all 0.3s ease;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  position: relative;
+  overflow: hidden;
+  animation: nav-pulse 2s ease-in-out infinite;
+
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(168, 85, 247, 0.2), rgba(6, 182, 212, 0.2));
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
 
   &:hover {
-    color: var(--text);
-    border-color: rgba(255, 255, 255, 0.28);
-    transform: translateY(-1px);
+    color: #fff;
+    border-color: rgba(6, 182, 212, 0.6);
+    transform: translateY(-2px) scale(1.05);
+    box-shadow:
+      0 0 20px rgba(168, 85, 247, 0.4),
+      0 0 40px rgba(6, 182, 212, 0.2);
+
+    &::before {
+      opacity: 1;
+    }
   }
 
   &:active {
     transform: scale(0.96);
   }
 
-  &.placeholder {
-    visibility: hidden;
+  i {
+    position: relative;
+    z-index: 1;
+    font-size: 16px;
   }
 }
 
+@keyframes nav-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 5px rgba(168, 85, 247, 0.3),
+      inset 0 0 10px rgba(168, 85, 247, 0.1);
+  }
+  50% {
+    box-shadow:
+      0 0 20px rgba(168, 85, 247, 0.5),
+      0 0 30px rgba(6, 182, 212, 0.3),
+      inset 0 0 15px rgba(168, 85, 247, 0.2);
+  }
+}
+
+.placeholder {
+  visibility: hidden;
+}
+
 .page-number {
-  color: var(--text-faint);
   font-size: 12px;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
   font-weight: 600;
+  background: linear-gradient(90deg, rgba(168, 85, 247, 0.8), rgba(6, 182, 212, 0.8));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow:
+    0 0 20px rgba(168, 85, 247, 0.4),
+    0 0 40px rgba(6, 182, 212, 0.2);
+  position: relative;
+
+  &::after {
+    content: '';
+    position: absolute;
+    bottom: -4px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 40px;
+    height: 2px;
+    background: linear-gradient(90deg, rgba(168, 85, 247, 0.6), rgba(6, 182, 212, 0.6));
+    border-radius: 1px;
+    box-shadow: 0 0 10px rgba(168, 85, 247, 0.5);
+  }
 }
 
 .page-content {
@@ -1634,9 +2618,30 @@ async function handleSubmit() {
 
 .chapter-title {
   margin: 0 0 8px;
-  font-size: 30px;
+  font-size: 32px;
   font-weight: 700;
-  letter-spacing: -0.01em;
+  letter-spacing: 0.05em;
+  background: linear-gradient(135deg, #fff 0%, rgba(168, 85, 247, 0.9) 50%, rgba(6, 182, 212, 0.9) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow:
+    0 0 30px rgba(168, 85, 247, 0.3),
+    0 0 60px rgba(6, 182, 212, 0.2);
+  position: relative;
+  display: inline-block;
+
+  &::after {
+    content: '';
+    position: absolute;
+    bottom: -6px;
+    left: 0;
+    width: 60px;
+    height: 3px;
+    background: linear-gradient(90deg, rgba(168, 85, 247, 0.8), rgba(6, 182, 212, 0.8));
+    border-radius: 2px;
+    box-shadow: 0 0 15px rgba(168, 85, 247, 0.6);
+  }
 }
 
 .chapter-desc {
@@ -1669,16 +2674,101 @@ async function handleSubmit() {
   padding: 16px;
   cursor: pointer;
   text-align: left;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--glass);
+  transition: all 0.3s ease;
 
-  &:hover,
-  &.active {
+  &:hover {
     transform: translateY(-2px);
-    border-color: rgba(255, 255, 255, 0.28);
+    border-color: rgba(168, 85, 247, 0.4);
     box-shadow: 0 8px 22px rgba(0, 0, 0, 0.18);
   }
 
   &.active {
-    background: var(--glass-strong);
+    transform: translateY(-2px);
+    border-color: rgba(6, 182, 212, 0.6);
+    box-shadow:
+      0 8px 32px rgba(6, 182, 212, 0.2),
+      0 0 20px rgba(168, 85, 247, 0.15),
+      inset 0 0 20px rgba(6, 182, 212, 0.05);
+
+    // 霓虹跑马灯光带
+    &::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 100%;
+      height: 2px;
+      background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(168, 85, 247, 0.8),
+        rgba(6, 182, 212, 0.8),
+        rgba(168, 85, 247, 0.8),
+        transparent
+      );
+      animation: neon-scan 3s linear infinite;
+    }
+
+    &::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      right: -100%;
+      width: 100%;
+      height: 2px;
+      background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(6, 182, 212, 0.8),
+        rgba(168, 85, 247, 0.8),
+        rgba(6, 182, 212, 0.8),
+        transparent
+      );
+      animation: neon-scan-reverse 3s linear infinite;
+    }
+
+    .scene-icon {
+      background: linear-gradient(135deg, rgba(168, 85, 247, 0.3), rgba(6, 182, 212, 0.3));
+      box-shadow:
+        0 0 15px rgba(168, 85, 247, 0.4),
+        0 0 30px rgba(6, 182, 212, 0.2);
+      animation: icon-pulse 2s ease-in-out infinite;
+    }
+
+    .scene-name {
+      color: #fff;
+      text-shadow: 0 0 10px rgba(6, 182, 212, 0.5);
+    }
+  }
+}
+
+@keyframes neon-scan {
+  0% { left: -100%; }
+  50% { left: 100%; }
+  100% { left: 100%; }
+}
+
+@keyframes neon-scan-reverse {
+  0% { right: -100%; }
+  50% { right: 100%; }
+  100% { right: 100%; }
+}
+
+@keyframes icon-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 15px rgba(168, 85, 247, 0.4),
+      0 0 30px rgba(6, 182, 212, 0.2);
+  }
+  50% {
+    box-shadow:
+      0 0 25px rgba(168, 85, 247, 0.6),
+      0 0 50px rgba(6, 182, 212, 0.4);
   }
 }
 
@@ -1774,12 +2864,82 @@ async function handleSubmit() {
   gap: 12px;
   padding: 14px;
   cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--glass);
+  transition: all 0.3s ease;
 
-  &:hover,
+  &:hover {
+    border-color: rgba(168, 85, 247, 0.4);
+    transform: translateY(-1px);
+  }
+
   &.checked {
-    border-color: rgba(255, 255, 255, 0.28);
+    border-color: rgba(6, 182, 212, 0.6);
     background: var(--glass-strong);
     transform: translateY(-1px);
+    box-shadow:
+      0 8px 32px rgba(6, 182, 212, 0.15),
+      0 0 20px rgba(168, 85, 247, 0.1),
+      inset 0 0 20px rgba(6, 182, 212, 0.05);
+
+    // 霓虹跑马灯光带
+    &::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 100%;
+      height: 2px;
+      background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(168, 85, 247, 0.8),
+        rgba(6, 182, 212, 0.8),
+        rgba(168, 85, 247, 0.8),
+        transparent
+      );
+      animation: neon-scan 3s linear infinite;
+    }
+
+    &::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      right: -100%;
+      width: 100%;
+      height: 2px;
+      background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(6, 182, 212, 0.8),
+        rgba(168, 85, 247, 0.8),
+        rgba(6, 182, 212, 0.8),
+        transparent
+      );
+      animation: neon-scan-reverse 3s linear infinite;
+    }
+
+    .check-mark {
+      background: linear-gradient(135deg, rgba(168, 85, 247, 0.3), rgba(6, 182, 212, 0.3));
+      border-color: rgba(6, 182, 212, 0.6);
+      box-shadow:
+        0 0 15px rgba(168, 85, 247, 0.4),
+        inset 0 0 10px rgba(6, 182, 212, 0.2);
+      animation: icon-pulse 2s ease-in-out infinite;
+
+      i {
+        color: #fff;
+        text-shadow: 0 0 10px rgba(6, 182, 212, 0.8);
+      }
+    }
+
+    .rule-name {
+      color: #fff;
+      text-shadow: 0 0 10px rgba(6, 182, 212, 0.3);
+    }
   }
 }
 
@@ -2010,20 +3170,228 @@ async function handleSubmit() {
   font-weight: 700;
 }
 
+.confirm-page {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  height: 100%;
+}
+
+.confirm-content {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
 .confirm-actions {
   display: grid;
   justify-items: center;
+  margin-top: auto;
+  padding: 40px 0;
 }
 
-.confirm-btn {
-  min-width: 220px;
-  padding: 14px 22px;
-  font-size: 16px;
+// 炫酷开始游戏按钮
+.cyber-start-btn {
+  position: relative;
+  min-width: 280px;
+  padding: 18px 32px;
+  font-size: 18px;
   font-weight: 700;
+  border: none;
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.2), rgba(6, 182, 212, 0.2));
+  color: #fff;
+  cursor: pointer;
+  overflow: hidden;
+  transition: all 0.3s ease;
+  animation: start-btn-pulse 2s ease-in-out infinite;
+
+  .btn-glow {
+    position: absolute;
+    inset: -2px;
+    border-radius: 18px;
+    background: linear-gradient(135deg, #a855f7, #06b6d4, #a855f7);
+    background-size: 200% 200%;
+    z-index: -1;
+    animation: gradient-rotate 3s ease infinite;
+    filter: blur(8px);
+    opacity: 0.6;
+  }
+
+  .btn-content {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    letter-spacing: 0.1em;
+
+    i {
+      font-size: 20px;
+      transition: transform 0.3s;
+    }
+  }
+
+  .btn-particles {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+
+    .particle {
+      position: absolute;
+      width: 4px;
+      height: 4px;
+      background: rgba(6, 182, 212, 0.8);
+      border-radius: 50%;
+      animation: particle-float 2s ease-out infinite;
+
+      &:nth-child(1) {
+        left: 20%;
+        bottom: -10px;
+        animation-delay: 0s;
+      }
+
+      &:nth-child(2) {
+        left: 50%;
+        bottom: -10px;
+        animation-delay: 0.5s;
+      }
+
+      &:nth-child(3) {
+        left: 80%;
+        bottom: -10px;
+        animation-delay: 1s;
+      }
+    }
+  }
+
+  &:hover {
+    transform: translateY(-3px) scale(1.02);
+    box-shadow:
+      0 20px 40px rgba(168, 85, 247, 0.3),
+      0 0 60px rgba(6, 182, 212, 0.2);
+
+    .btn-glow {
+      opacity: 1;
+      filter: blur(12px);
+    }
+
+    .btn-content i {
+      transform: translateX(4px);
+    }
+  }
+
+  &:active {
+    transform: translateY(-1px) scale(0.98);
+  }
 
   &:disabled {
     opacity: 0.45;
     cursor: not-allowed;
+    animation: none;
+
+    .btn-glow {
+      animation: none;
+      opacity: 0.2;
+    }
+
+    .btn-particles {
+      display: none;
+    }
+  }
+}
+
+@keyframes start-btn-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 20px rgba(168, 85, 247, 0.3),
+      0 0 40px rgba(6, 182, 212, 0.2),
+      inset 0 0 20px rgba(168, 85, 247, 0.1);
+  }
+  50% {
+    box-shadow:
+      0 0 30px rgba(168, 85, 247, 0.5),
+      0 0 60px rgba(6, 182, 212, 0.3),
+      inset 0 0 30px rgba(168, 85, 247, 0.2);
+  }
+}
+
+@keyframes gradient-rotate {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes particle-float {
+  0% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-60px) scale(0);
+    opacity: 0;
+  }
+}
+
+// 底部预设按钮栏
+.confirm-presets-bar {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  padding: 16px 0 24px;
+  border-top: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.cyber-preset-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  border-radius: 12px;
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  background: rgba(168, 85, 247, 0.08);
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(168, 85, 247, 0.2), rgba(6, 182, 212, 0.2));
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+
+  &:hover {
+    color: #fff;
+    border-color: rgba(6, 182, 212, 0.5);
+    transform: translateY(-2px);
+    box-shadow:
+      0 8px 20px rgba(168, 85, 247, 0.2),
+      0 0 15px rgba(6, 182, 212, 0.15);
+
+    &::before {
+      opacity: 1;
+    }
+  }
+
+  i {
+    position: relative;
+    z-index: 1;
+    font-size: 14px;
+    color: rgba(168, 85, 247, 0.9);
+  }
+
+  span {
+    position: relative;
+    z-index: 1;
   }
 }
 

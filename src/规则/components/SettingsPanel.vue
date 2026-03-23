@@ -503,6 +503,15 @@ import {
   clampMainUiHeightPx,
 } from '../utils/uiLayoutLimits';
 import { getOtherSettings, saveOtherSettings } from '../utils/otherSettings';
+import {
+  loadOutputMode,
+  saveOutputMode,
+  loadSecondaryApiConfig,
+  saveSecondaryApiConfig,
+  saveUiLayout,
+  loadOtherSettings,
+  saveOtherSettingsLocal,
+} from '../utils/localSettings';
 
 const props = defineProps<{
   isDarkMode: boolean;
@@ -572,6 +581,18 @@ const connectionStatus = ref<'success' | 'error' | null>(null);
 const connectionMessage = ref('');
 const showSaveSuccess = ref(false);
 
+// 错误提示节流控制（每5秒最多提示一次）
+const lastErrorToastTime = ref(0);
+const ERROR_TOAST_THROTTLE = 5000; // 5秒
+
+function throttledErrorToast(message: string) {
+  const now = Date.now();
+  if (now - lastErrorToastTime.value >= ERROR_TOAST_THROTTLE) {
+    lastErrorToastTime.value = now;
+    toastr.error(message);
+  }
+}
+
 function emitLayout(next: UiLayoutSettings) {
   emit('layoutChange', next);
 }
@@ -597,61 +618,50 @@ function onMainHeightInput(e: Event) {
   void saveSettings(next);
 }
 
-// 从变量存储加载设置
-onMounted(async () => {
-  await loadSettings();
+// 从浏览器 localStorage 加载设置
+onMounted(() => {
+  loadSettings();
 });
 
-/** 仅加载输出模式与第二 API；uiLayout 由 App 水合后经 props 传入，避免竞态闪动 */
+/** 从 localStorage 加载所有设置 */
 function loadSettings() {
   try {
-    const { useDataStore } = import('../store');
-    const store = useDataStore();
-    const player = (store.data as any).player;
-
     // 加载输出模式
-    if (player?.settings?.outputMode) {
-      outputMode.value = player.settings.outputMode;
-    }
+    outputMode.value = loadOutputMode();
 
     // 加载第二API配置
-    if (player?.settings?.secondaryApi) {
-      secondaryApi.value = {
-        ...secondaryApi.value,
-        ...player.settings.secondaryApi,
-      };
-    }
+    secondaryApi.value = loadSecondaryApiConfig();
 
     // 加载其他设置（输入行为模式）
-    if (player?.settings?.other?.inputActionMode) {
-      inputActionMode.value = player.settings.other.inputActionMode;
-    }
+    const otherSettings = loadOtherSettings();
+    inputActionMode.value = otherSettings.inputActionMode;
+
+    console.log('✅ [SettingsPanel] 设置从 localStorage 加载成功:', {
+      outputMode: outputMode.value,
+      secondaryApi: { ...secondaryApi.value, key: '***' },
+      inputActionMode: inputActionMode.value,
+    });
   } catch (error) {
-    console.warn('加载设置失败:', error);
+    console.warn('⚠️ [SettingsPanel] 从 localStorage 加载设置失败:', error);
   }
 }
 
-// 保存设置到变量存储（布局快照由调用方传入，避免 props 尚未同步时写入旧值）
-async function saveSettings(layoutSnapshot?: UiLayoutSettings) {
+// 保存设置到浏览器 localStorage（布局快照由调用方传入，避免 props 尚未同步时写入旧值）
+function saveSettings(layoutSnapshot?: UiLayoutSettings) {
   const layout = layoutSnapshot ?? props.uiLayout;
   try {
-    const { updateStatData } = await import('../utils/dialogAndVariable');
-    updateStatData((stat) => {
-      if (!stat.player) {
-        stat.player = { name: '玩家', settings: {} };
-      }
-      if (!stat.player.settings) {
-        stat.player.settings = {};
-      }
-      stat.player.settings.outputMode = outputMode.value;
-      stat.player.settings.secondaryApi = secondaryApi.value;
-      stat.player.settings.uiLayout = layout;
-      // 保存其他设置
-      if (!stat.player.settings.other) {
-        stat.player.settings.other = {};
-      }
-      stat.player.settings.other.inputActionMode = inputActionMode.value;
-      return stat;
+    // 保存输出模式
+    saveOutputMode(outputMode.value);
+
+    // 保存第二API配置
+    saveSecondaryApiConfig(secondaryApi.value);
+
+    // 保存界面布局
+    saveUiLayout(layout);
+
+    // 保存其他设置
+    saveOtherSettingsLocal({
+      inputActionMode: inputActionMode.value,
     });
 
     // 显示保存成功提示
@@ -661,7 +671,7 @@ async function saveSettings(layoutSnapshot?: UiLayoutSettings) {
     }, 2000);
   } catch (error) {
     console.error('保存设置失败:', error);
-    toastr.error('设置保存失败');
+    throttledErrorToast('设置保存失败');
   }
 }
 

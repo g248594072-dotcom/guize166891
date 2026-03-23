@@ -10,10 +10,13 @@
   <div
     v-else-if="gamePhase === GamePhase.GAME"
     id="app-root"
-    class="rule-modifier"
-    :class="{ 'dark': isDarkMode, 'light': !isDarkMode, 'layout-pending': uiLayout.maxHeight === undefined }"
+    class="rule-modifier cyber-bg"
+    :class="{ 'dark': isDarkMode, 'light': !isDarkMode, 'layout-pending': uiLayout.maxHeight === undefined, 'animate-shake': isShaking }"
     :style="rootStyle"
   >
+    <!-- 赛博朋克特效层 -->
+    <ParallaxBackground />
+    <TerminalSnippets />
     <!-- Store 加载中 -->
     <div v-if="!isStoreReady" class="store-loading">
       <i class="fa-solid fa-circle-notch fa-spin"></i>
@@ -23,8 +26,8 @@
     <nav class="sidebar">
       <div class="sidebar-top">
         <div class="logo">
-          <i class="fa-solid fa-sparkles"></i>
-          <span class="logo-text">RULE.MODIFIER</span>
+          <i class="fa-solid fa-book-open logo-book-icon"></i>
+          <span class="logo-text">规则模拟器</span>
         </div>
         <div class="nav-items">
           <button
@@ -767,6 +770,10 @@ import RegionalRulesPanel from './components/RegionalRulesPanel.vue';
 import PersonalRulesPanel from './components/PersonalRulesPanel.vue';
 import SettingsPanel from './components/SettingsPanel.vue';
 import OpeningForm from './components/OpeningForm.vue';
+
+// 赛博朋克特效组件
+import ParallaxBackground from './components/ParallaxBackground.vue';
+import TerminalSnippets from './components/TerminalSnippets.vue';
 import {
   loadFromLatestMessage,
   parseMaintext,
@@ -789,6 +796,7 @@ import { updateWorldbookEntriesByMode, isSecondaryApiConfigured } from './utils/
 import { startIframeHeightFix } from './utils/iframeHeightFix';
 import type { UiLayoutSettings } from './utils/uiLayoutLimits';
 import { clampMainUiHeightPx } from './utils/uiLayoutLimits';
+import { loadUiLayout } from './utils/localSettings';
 import { useDataStore } from './store';
 
 // 游戏阶段管理
@@ -799,7 +807,8 @@ const isGeneratingOpening = ref(false); // 开场白生成中（显示加载弹�
 /** 标签确认后：写入楼层、MVU 解析、开局第二 API 等进行中；不挡正文，仅顶栏提示并禁止发送 */
 const isVariablePersistInProgress = ref(false);
 const isOpeningPhase = ref(false); // 标志当前是否处于开局流程（用于标签弹窗区分）
-const openingFormKey = ref(0); // 强制重置 OpeningForm（用于回退/失败后取消“开始游戏”转圈）
+const openingFormKey = ref(0);
+const isShaking = ref(false); // 震动动画状态 // 强制重置 OpeningForm（用于回退/失败后取消“开始游戏”转圈）
 
 // 宿主会反复把同层 iframe 高度改成很小值（如 72px），需要在进入游戏阶段后兜底保持最小高度。
 let stopIframeHeightFix: (() => void) | null = null;
@@ -1493,9 +1502,9 @@ async function sendMessage() {
   let secondaryApiConfig: any = null;
   try {
     const { getCurrentOutputMode, getSecondaryApiConfig } = await import('./utils/apiSettings');
-    isDualMode = await getCurrentOutputMode() === 'dual';
+    isDualMode = getCurrentOutputMode() === 'dual';
     if (isDualMode) {
-      secondaryApiConfig = await getSecondaryApiConfig();
+      secondaryApiConfig = getSecondaryApiConfig();
       console.log(`🔄 [App] 双API模式已启用，第二API配置: ${secondaryApiConfig ? '已配置' : '未配置'}`);
     }
   } catch (error) {
@@ -1888,9 +1897,9 @@ async function handleRegenerate() {
     let secondaryApiConfig: any = null;
     try {
       const { getCurrentOutputMode, getSecondaryApiConfig } = await import('./utils/apiSettings');
-      isDualMode = await getCurrentOutputMode() === 'dual';
+      isDualMode = getCurrentOutputMode() === 'dual';
       if (isDualMode) {
-        secondaryApiConfig = await getSecondaryApiConfig();
+        secondaryApiConfig = getSecondaryApiConfig();
       }
     } catch (error) {
       console.warn('⚠️ [App] 检测输出模式失败:', error);
@@ -2002,8 +2011,8 @@ async function handleRegenerateVariablesOnly() {
     let secondaryApiConfig: any = null;
     try {
       const { getCurrentOutputMode, getSecondaryApiConfig } = await import('./utils/apiSettings');
-      mode = await getCurrentOutputMode();
-      secondaryApiConfig = await getSecondaryApiConfig();
+      mode = getCurrentOutputMode();
+      secondaryApiConfig = getSecondaryApiConfig();
     } catch (e) {
       console.warn('⚠️ [App] 获取输出模式/第二API配置失败，将按单API回退:', e);
     }
@@ -2601,7 +2610,7 @@ async function refineOpeningAssistantWithSecondaryApi(
     const { getSecondaryApiConfig, processWithSecondaryApi, isSecondaryApiConfigured } = await import(
       './utils/apiSettings',
     );
-    const secondaryApiConfig = await getSecondaryApiConfig();
+    const secondaryApiConfig = getSecondaryApiConfig();
     if (!isSecondaryApiConfigured(secondaryApiConfig)) return;
 
     if (typeof getChatMessages === 'function') {
@@ -2703,28 +2712,26 @@ async function recordAssistantMessage(message: string) {
   }
 }
 
-/** 挂载时唯一入口：从 store 合并 uiLayout 并做安全兜底（开局与游戏中共用，避免重复异步读覆盖） */
-function loadUiLayoutFromGameData(): void {
+/** 挂载时唯一入口：从 localStorage 加载 uiLayout */
+function loadUiLayoutFromStorage(): void {
   try {
-    // 使用静态导入的 useDataStore
-    const store = useDataStore();
-    // player 数据可能在 MVU 变量中，通过 store.data 访问
-    const player = (store.data as any).player;
-    if (!player?.settings?.uiLayout) {
-      // 无存档：用兜底固定值 600（用户从未设置过高度时，给个稳定初始值）
-      uiLayout.value.maxHeight = 600;
-      return;
-    }
-    const incoming = player.settings.uiLayout as Partial<UiLayoutSettings>;
-    uiLayout.value = { ...uiLayout.value, ...incoming };
+    const saved = loadUiLayout();
+    uiLayout.value = {
+      ...uiLayout.value,
+      ...saved,
+    };
+
+    // 数值安全校验
     const safeScale = Number(uiLayout.value.scale);
     const safeMaxWidth = Number(uiLayout.value.maxWidth);
     const safeMaxHeight = Number(uiLayout.value.maxHeight);
     uiLayout.value.scale = Number.isFinite(safeScale) ? Math.min(1.3, Math.max(0.8, safeScale)) : 0.8;
     uiLayout.value.maxWidth = Number.isFinite(safeMaxWidth) ? Math.min(2400, Math.max(800, safeMaxWidth)) : 900;
     uiLayout.value.maxHeight = clampMainUiHeightPx(safeMaxHeight);
+
+    console.log('✅ [App] uiLayout 从 localStorage 加载成功:', uiLayout.value);
   } catch (e) {
-    console.warn('⚠️ [App] 读取 uiLayout 设置失败:', e);
+    console.warn('⚠️ [App] 从 localStorage 读取 uiLayout 失败:', e);
     uiLayout.value.maxHeight = 600; // 出错也给个兜底值，避免 auto 无限撑高
   }
 }
@@ -2732,7 +2739,7 @@ function loadUiLayoutFromGameData(): void {
 // 检查游戏阶段
 async function checkGamePhase() {
   try {
-    await loadUiLayoutFromGameData();
+    loadUiLayoutFromStorage();
 
     const lastMessageId = getLastMessageId();
     console.log('📊 [App] 当前楼层数:', lastMessageId);
@@ -2827,9 +2834,9 @@ async function handleOpeningSubmit(formData: OpeningFormData) {
   let secondaryApiConfig: any = null;
   try {
     const { getCurrentOutputMode, getSecondaryApiConfig } = await import('./utils/apiSettings');
-    isDualMode = await getCurrentOutputMode() === 'dual';
+    isDualMode = getCurrentOutputMode() === 'dual';
     if (isDualMode) {
-      secondaryApiConfig = await getSecondaryApiConfig();
+      secondaryApiConfig = getSecondaryApiConfig();
       console.log(`🔄 [App] 开局流程：双API模式已启用`);
     }
   } catch (error) {
@@ -3043,7 +3050,7 @@ onMounted(() => {
     );
   }
 
-  // 检查游戏阶段并加载内容（内含唯一一次 loadUiLayoutFromGameData）
+  // 检查游戏阶段并加载内容（内含唯一一次 loadUiLayoutFromStorage）
   void checkGamePhase();
 
   // 监听全屏变化事件
@@ -3103,6 +3110,9 @@ onUnmounted(() => {
 </script>
 
 <style lang="scss" scoped>
+// 导入赛博朋克全局样式
+@use './styles/cyber-effects' as *;
+
 .rule-modifier {
   display: flex;
   width: 100%;
