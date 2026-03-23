@@ -25,6 +25,7 @@
     </div>
     <!-- Sidebar -->
     <nav class="sidebar">
+      <SidebarEffects />
       <div class="sidebar-top">
         <div class="logo">
           <i class="fa-solid fa-book-open logo-book-icon"></i>
@@ -95,6 +96,7 @@
     <!-- Right Panel: LLM Interaction (Main Area) -->
     <main class="main-panel" :class="{ dark: isDarkMode, light: !isDarkMode }">
       <div class="main-header">
+        <HeaderEffects />
         <div class="header-title">
           <i class="fa-solid fa-message"></i>
           <h2>游戏正文</h2>
@@ -295,14 +297,20 @@
       <!-- 右下角：变量更新提示（查看当前楼层 UpdateVariable 内容） -->
       <button
         v-if="viewMode === 'normal'"
+        ref="fabRef"
         type="button"
         class="variable-fab"
-        :class="{ dark: isDarkMode, light: !isDarkMode }"
-        @click="openVariableUpdateDialog"
+        :class="{ dark: isDarkMode, light: !isDarkMode, 'is-dragging': isDraggingFab }"
+        :style="variableFabStyle"
+        @mousedown="onFabMouseDown"
+        @touchstart="onFabMouseDown"
+        @mouseup="onFabClick"
+        @touchend.passive="onFabTouchEnd"
         title="查看当前楼层变量更新（UpdateVariable）"
       >
         <i class="fa-solid fa-code"></i>
         <span class="variable-fab-text">变量</span>
+        <span class="drag-hint">拖动我</span>
       </button>
     </main>
 
@@ -775,6 +783,8 @@ import OpeningForm from './components/OpeningForm.vue';
 // 赛博朋克特效组件
 import ParallaxBackground from './components/ParallaxBackground.vue';
 import TerminalSnippets from './components/TerminalSnippets.vue';
+import HeaderEffects from './components/HeaderEffects.vue';
+import SidebarEffects from './components/SidebarEffects.vue';
 import {
   loadFromLatestMessage,
   parseMaintext,
@@ -945,6 +955,125 @@ const pendingVariableReroll = ref<{
 // 当前楼层：变量更新查看弹窗
 const variableUpdateDialogOpen = ref(false);
 const variableUpdateDialogText = ref('');
+
+// 变量FAB按钮拖动功能
+const variableFabPosition = ref({ x: 0, y: 0 });
+const isDraggingFab = ref(false);
+const hasFabDragged = ref(false);
+const fabDragOffset = ref({ x: 0, y: 0 });
+const fabDragStartPos = ref({ x: 0, y: 0 });
+const fabRef = ref<HTMLElement | null>(null);
+
+function onFabMouseDown(e: MouseEvent | TouchEvent) {
+  // 左键或触摸开始拖动
+  if (e instanceof MouseEvent && e.button !== 0) return;
+
+  isDraggingFab.value = true;
+  hasFabDragged.value = false;
+  const clientX = e instanceof MouseEvent ? e.clientX : e.touches[0].clientX;
+  const clientY = e instanceof MouseEvent ? e.clientY : e.touches[0].clientY;
+  fabDragStartPos.value = { x: clientX, y: clientY };
+  fabDragOffset.value = {
+    x: clientX - variableFabPosition.value.x,
+    y: clientY - variableFabPosition.value.y
+  };
+
+  // 添加全局事件监听（注意：touchend在按钮元素上处理，不在document上）
+  document.addEventListener('mousemove', onFabMouseMove);
+  document.addEventListener('mouseup', onFabMouseUp);
+  document.addEventListener('touchmove', onFabTouchMove, { passive: false });
+  // touchend在按钮的@touchend事件上处理
+}
+
+function onFabMouseMove(e: MouseEvent) {
+  if (!isDraggingFab.value) return;
+  e.preventDefault();
+
+  const newX = e.clientX - fabDragOffset.value.x;
+  const newY = e.clientY - fabDragOffset.value.y;
+
+  // 判断是否实际拖动了（超过5像素认为是拖动而非点击）
+  if (!hasFabDragged.value) {
+    const dragDistance = Math.sqrt(
+      Math.pow(e.clientX - fabDragStartPos.value.x, 2) +
+      Math.pow(e.clientY - fabDragStartPos.value.y, 2)
+    );
+    if (dragDistance > 5) {
+      hasFabDragged.value = true;
+    }
+  }
+
+  variableFabPosition.value = { x: newX, y: newY };
+}
+
+function onFabTouchMove(e: TouchEvent) {
+  if (!isDraggingFab.value) return;
+  e.preventDefault();
+  const touch = e.touches[0];
+
+  const newX = touch.clientX - fabDragOffset.value.x;
+  const newY = touch.clientY - fabDragOffset.value.y;
+
+  // 判断是否实际拖动了
+  if (!hasFabDragged.value) {
+    const dragDistance = Math.sqrt(
+      Math.pow(touch.clientX - fabDragStartPos.value.x, 2) +
+      Math.pow(touch.clientY - fabDragStartPos.value.y, 2)
+    );
+    if (dragDistance > 5) {
+      hasFabDragged.value = true;
+    }
+  }
+
+  variableFabPosition.value = { x: newX, y: newY };
+}
+
+function onFabMouseUp() {
+  isDraggingFab.value = false;
+  document.removeEventListener('mousemove', onFabMouseMove);
+  document.removeEventListener('mouseup', onFabMouseUp);
+  document.removeEventListener('touchmove', onFabTouchMove);
+  // 注意：touchend在按钮元素上处理，不在这里移除
+}
+
+// 处理FAB点击事件（区分点击和拖动）
+function onFabClick(e: MouseEvent) {
+  // 如果已经拖动了，阻止点击事件
+  if (hasFabDragged.value) {
+    e.preventDefault();
+    e.stopPropagation();
+    return;
+  }
+  // 只有真正的点击才打开对话框
+  if (!isDraggingFab.value) {
+    openVariableUpdateDialog();
+  }
+}
+
+// 触摸结束处理
+function onFabTouchEnd(e: TouchEvent) {
+  // 先结束拖动状态并清理document上的事件监听
+  isDraggingFab.value = false;
+  document.removeEventListener('mousemove', onFabMouseMove);
+  document.removeEventListener('mouseup', onFabMouseUp);
+  document.removeEventListener('touchmove', onFabTouchMove);
+
+  // 如果已经拖动了，阻止点击行为
+  if (hasFabDragged.value) {
+    e.preventDefault();
+    e.stopPropagation();
+    return;
+  }
+
+  // 真正的点击，打开对话框
+  openVariableUpdateDialog();
+}
+
+// 计算FAB按钮样式
+const variableFabStyle = computed(() => ({
+  transform: `translate(${variableFabPosition.value.x}px, ${variableFabPosition.value.y}px)`,
+  cursor: isDraggingFab.value ? 'grabbing' : 'grab'
+}));
 
 // 调试：监听 activeTab 的变化
 watch(activeTab, (newVal, oldVal) => {
@@ -3166,6 +3295,7 @@ onUnmounted(() => {
 
 // Sidebar
 .sidebar {
+  position: relative;
   width: var(--sidebar-width);
   height: 100%;
   max-height: var(--ui-max-height, 600px);
@@ -3188,7 +3318,12 @@ onUnmounted(() => {
 }
 
 .sidebar-top {
+  position: relative;
+  z-index: 1;
+
   .logo {
+    position: relative;
+    z-index: 1;
     height: calc(80px * var(--ui-scale, 1));
     display: flex;
     align-items: center;
@@ -3214,6 +3349,8 @@ onUnmounted(() => {
   }
 
   .nav-items {
+    position: relative;
+    z-index: 1;
     padding: var(--space-lg);
     display: flex;
     flex-direction: column;
@@ -3232,6 +3369,8 @@ onUnmounted(() => {
 }
 
 .sidebar-bottom {
+  position: relative;
+  z-index: 1;
   padding: var(--space-lg);
   border-top: 1px solid rgba(255, 255, 255, 0.05);
   display: flex;
@@ -3423,9 +3562,21 @@ onUnmounted(() => {
 }
 
 .panel-content {
-  flex: 1;
+  flex: 1 1 auto;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: var(--space-xl) calc(40px * var(--ui-scale, 1));
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+
+  /* 嵌套的面板组件应该占满高度并处理滚动 */
+  & > * {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: 100%;
+  }
 }
 
 .fade-enter-active,
@@ -3464,14 +3615,18 @@ onUnmounted(() => {
 }
 
 .main-header {
+  position: relative;
   height: calc(80px * var(--ui-scale, 1));
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 calc(32px * var(--ui-scale, 1));
+  overflow: hidden;
 
   .header-title {
+    position: relative;
+    z-index: 1;
     display: flex;
     align-items: center;
     gap: var(--space-md);
@@ -3555,6 +3710,8 @@ onUnmounted(() => {
 }
 
 .header-actions {
+  position: relative;
+  z-index: 1;
   display: flex;
   gap: var(--space-sm);
 }
@@ -3984,27 +4141,63 @@ onUnmounted(() => {
 
 // 右下角变量按钮
 .variable-fab {
-  position: absolute;
+  position: fixed;
   right: var(--space-xl);
   bottom: calc(120px * var(--ui-scale, 1));
-  z-index: 15;
+  z-index: 9999;
   display: inline-flex;
   align-items: center;
   gap: var(--space-sm);
   padding: calc(10px * var(--ui-scale, 1)) var(--space-md);
   border-radius: 999px;
   border: 1px solid transparent;
-  cursor: pointer;
-  transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+  cursor: grab;
+  transition:
+    box-shadow 0.3s ease,
+    background 0.3s ease,
+    border-color 0.3s ease,
+    opacity 0.2s ease;
   font-size: calc(13px * var(--ui-scale, 1));
   user-select: none;
+  touch-action: none;
 
   &:hover {
-    transform: translateY(calc(-1px * var(--ui-scale, 1)));
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  }
+
+  &:active {
+    cursor: grabbing;
+  }
+
+  &.is-dragging {
+    cursor: grabbing;
+    opacity: 0.9;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+    transition:
+      box-shadow 0.3s ease,
+      background 0.3s ease,
+      border-color 0.3s ease,
+      opacity 0.2s ease;
+
+    .drag-hint {
+      opacity: 1;
+    }
   }
 
   i {
     font-size: calc(14px * var(--ui-scale, 1));
+  }
+
+  .drag-hint {
+    position: absolute;
+    top: -20px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 10px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    white-space: nowrap;
+    pointer-events: none;
   }
 }
 
@@ -4014,22 +4207,103 @@ onUnmounted(() => {
 }
 
 .variable-fab.dark {
-  background: rgba(39, 39, 42, 0.85);
-  border-color: rgba(63, 63, 70, 0.8);
+  background: linear-gradient(
+    135deg,
+    rgba(6, 182, 212, 0.15) 0%,
+    rgba(30, 30, 35, 0.9) 50%,
+    rgba(168, 85, 247, 0.15) 100%
+  );
+  border-color: rgba(6, 182, 212, 0.3);
   color: #e4e4e7;
+  box-shadow:
+    0 2px 10px rgba(0, 0, 0, 0.3),
+    0 0 15px rgba(6, 182, 212, 0.1);
 
   &:hover {
-    background: rgba(63, 63, 70, 0.7);
+    background: linear-gradient(
+      135deg,
+      rgba(6, 182, 212, 0.25) 0%,
+      rgba(40, 40, 45, 0.95) 50%,
+      rgba(168, 85, 247, 0.25) 100%
+    );
+    border-color: rgba(6, 182, 212, 0.5);
+    box-shadow:
+      0 4px 20px rgba(0, 0, 0, 0.4),
+      0 0 20px rgba(6, 182, 212, 0.2);
+  }
+
+  &:active {
+    box-shadow:
+      0 2px 10px rgba(0, 0, 0, 0.3),
+      0 0 25px rgba(6, 182, 212, 0.3);
+  }
+
+  &.is-dragging {
+    background: linear-gradient(
+      135deg,
+      rgba(6, 182, 212, 0.3) 0%,
+      rgba(50, 50, 55, 1) 50%,
+      rgba(168, 85, 247, 0.3) 100%
+    );
+    border-color: rgba(6, 182, 212, 0.7);
+    box-shadow:
+      0 8px 30px rgba(0, 0, 0, 0.5),
+      0 0 30px rgba(6, 182, 212, 0.3);
+  }
+
+  .drag-hint {
+    color: rgba(6, 182, 212, 0.8);
+    text-shadow: 0 0 8px rgba(6, 182, 212, 0.5);
   }
 }
 
 .variable-fab.light {
-  background: rgba(255, 255, 255, 0.9);
-  border-color: rgba(0, 0, 0, 0.12);
+  background: linear-gradient(
+    135deg,
+    rgba(6, 182, 212, 0.1) 0%,
+    rgba(255, 255, 255, 0.95) 50%,
+    rgba(168, 85, 247, 0.1) 100%
+  );
+  border-color: rgba(6, 182, 212, 0.25);
   color: #27272a;
+  box-shadow:
+    0 2px 10px rgba(0, 0, 0, 0.1),
+    0 0 12px rgba(6, 182, 212, 0.08);
 
   &:hover {
-    background: rgba(244, 244, 245, 0.95);
+    background: linear-gradient(
+      135deg,
+      rgba(6, 182, 212, 0.18) 0%,
+      rgba(255, 255, 255, 1) 50%,
+      rgba(168, 85, 247, 0.18) 100%
+    );
+    border-color: rgba(6, 182, 212, 0.4);
+    box-shadow:
+      0 4px 20px rgba(0, 0, 0, 0.15),
+      0 0 18px rgba(6, 182, 212, 0.15);
+  }
+
+  &:active {
+    box-shadow:
+      0 2px 10px rgba(0, 0, 0, 0.1),
+      0 0 20px rgba(6, 182, 212, 0.2);
+  }
+
+  &.is-dragging {
+    background: linear-gradient(
+      135deg,
+      rgba(6, 182, 212, 0.25) 0%,
+      rgba(250, 250, 252, 1) 50%,
+      rgba(168, 85, 247, 0.25) 100%
+    );
+    border-color: rgba(6, 182, 212, 0.6);
+    box-shadow:
+      0 8px 30px rgba(0, 0, 0, 0.2),
+      0 0 25px rgba(6, 182, 212, 0.2);
+  }
+
+  .drag-hint {
+    color: rgba(6, 182, 212, 0.7);
   }
 }
 
@@ -4161,6 +4435,16 @@ onUnmounted(() => {
   .variable-fab {
     bottom: calc(152px * var(--ui-scale, 1));
     right: var(--space-lg);
+    // 手机端也保持fixed定位，支持拖动
+  }
+}
+
+// 拖动时的全局样式
+body.has-dragging-fab {
+  cursor: grabbing !important;
+
+  * {
+    cursor: grabbing !important;
   }
 }
 
@@ -4237,43 +4521,110 @@ onUnmounted(() => {
   width: 100%;
   padding: calc(10px * var(--ui-scale, 1)) var(--space-md);
   border-radius: var(--radius-md);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(6, 182, 212, 0.2);
+  background: linear-gradient(
+    135deg,
+    rgba(6, 182, 212, 0.08) 0%,
+    rgba(0, 0, 0, 0.4) 50%,
+    rgba(168, 85, 247, 0.08) 100%
+  );
   color: #e4e4e7;
   font-size: calc(14px * var(--ui-scale, 1));
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.3s ease;
   margin-bottom: var(--space-sm);
+  position: relative;
+  overflow: hidden;
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(6, 182, 212, 0.2) 50%,
+      transparent 100%
+    );
+    transition: left 0.5s ease;
+  }
 
   &:hover {
-    background: rgba(255, 255, 255, 0.1);
-    border-color: rgba(255, 255, 255, 0.2);
+    border-color: rgba(6, 182, 212, 0.5);
+    box-shadow:
+      0 0 15px rgba(6, 182, 212, 0.2),
+      inset 0 0 20px rgba(6, 182, 212, 0.05);
+    transform: translateY(-1px);
+
+    &::before {
+      left: 100%;
+    }
+  }
+
+  &:active {
+    transform: translateY(0);
   }
 
   i {
     font-size: calc(12px * var(--ui-scale, 1));
-    transition: transform 0.2s;
+    transition: transform 0.3s ease;
+    color: rgba(6, 182, 212, 0.8);
   }
 }
 
 .dark .options-toggle {
-  border-color: rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(6, 182, 212, 0.25);
+  background: linear-gradient(
+    135deg,
+    rgba(6, 182, 212, 0.1) 0%,
+    rgba(10, 10, 12, 0.8) 50%,
+    rgba(168, 85, 247, 0.1) 100%
+  );
   color: #e4e4e7;
 
   &:hover {
-    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(6, 182, 212, 0.5);
+    background: linear-gradient(
+      135deg,
+      rgba(6, 182, 212, 0.15) 0%,
+      rgba(15, 15, 18, 0.9) 50%,
+      rgba(168, 85, 247, 0.15) 100%
+    );
+    box-shadow:
+      0 0 20px rgba(6, 182, 212, 0.25),
+      inset 0 0 30px rgba(6, 182, 212, 0.08);
   }
 }
 
 .light .options-toggle {
-  border-color: rgba(0, 0, 0, 0.1);
-  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(6, 182, 212, 0.3);
+  background: linear-gradient(
+    135deg,
+    rgba(6, 182, 212, 0.05) 0%,
+    rgba(250, 250, 252, 0.9) 50%,
+    rgba(168, 85, 247, 0.05) 100%
+  );
   color: #27272a;
 
   &:hover {
-    background: rgba(0, 0, 0, 0.1);
+    border-color: rgba(6, 182, 212, 0.5);
+    background: linear-gradient(
+      135deg,
+      rgba(6, 182, 212, 0.1) 0%,
+      rgba(255, 255, 255, 1) 50%,
+      rgba(168, 85, 247, 0.1) 100%
+    );
+    box-shadow:
+      0 0 15px rgba(6, 182, 212, 0.15),
+      inset 0 0 20px rgba(6, 182, 212, 0.05);
+  }
+
+  i {
+    color: rgba(6, 182, 212, 0.9);
   }
 }
 
@@ -4304,39 +4655,188 @@ onUnmounted(() => {
   gap: var(--space-md);
   padding: var(--space-md) var(--space-lg);
   border-radius: var(--radius-md);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(6, 182, 212, 0.15);
+  background: linear-gradient(
+    90deg,
+    rgba(6, 182, 212, 0.05) 0%,
+    rgba(0, 0, 0, 0.3) 30%,
+    rgba(0, 0, 0, 0.3) 70%,
+    rgba(168, 85, 247, 0.05) 100%
+  );
   color: #e4e4e7;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.3s ease;
   text-align: left;
+  position: relative;
+  overflow: hidden;
+
+  &::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: linear-gradient(
+      180deg,
+      rgba(6, 182, 212, 0.8) 0%,
+      rgba(168, 85, 247, 0.8) 100%
+    );
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(
+      circle at 20% 50%,
+      rgba(6, 182, 212, 0.1) 0%,
+      transparent 50%
+    );
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
 
   &:hover {
-    background: rgba(255, 255, 255, 0.1);
-    border-color: rgba(255, 255, 255, 0.2);
+    border-color: rgba(6, 182, 212, 0.4);
+    background: linear-gradient(
+      90deg,
+      rgba(6, 182, 212, 0.1) 0%,
+      rgba(15, 15, 18, 0.8) 30%,
+      rgba(15, 15, 18, 0.8) 70%,
+      rgba(168, 85, 247, 0.1) 100%
+    );
     transform: translateX(calc(4px * var(--ui-scale, 1)));
+    box-shadow:
+      -5px 0 20px rgba(6, 182, 212, 0.15),
+      5px 0 20px rgba(168, 85, 247, 0.1);
+
+    &::before {
+      opacity: 1;
+    }
+
+    &::after {
+      opacity: 1;
+    }
+  }
+
+  &:active {
+    transform: translateX(calc(2px * var(--ui-scale, 1)));
   }
 }
 
 .dark .option-btn {
-  border-color: rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(6, 182, 212, 0.2);
+  background: linear-gradient(
+    90deg,
+    rgba(6, 182, 212, 0.08) 0%,
+    rgba(18, 18, 22, 0.9) 25%,
+    rgba(18, 18, 22, 0.9) 75%,
+    rgba(168, 85, 247, 0.08) 100%
+  );
   color: #e4e4e7;
 
+  &::before {
+    background: linear-gradient(
+      180deg,
+      rgba(6, 182, 212, 1) 0%,
+      rgba(168, 85, 247, 0.8) 100%
+    );
+    box-shadow: 0 0 10px rgba(6, 182, 212, 0.5);
+  }
+
   &:hover {
-    background: rgba(255, 255, 255, 0.1);
-    border-color: rgba(255, 255, 255, 0.2);
+    background: linear-gradient(
+      90deg,
+      rgba(6, 182, 212, 0.15) 0%,
+      rgba(25, 25, 30, 0.95) 25%,
+      rgba(25, 25, 30, 0.95) 75%,
+      rgba(168, 85, 247, 0.15) 100%
+    );
+    border-color: rgba(6, 182, 212, 0.5);
+    box-shadow:
+      -5px 0 25px rgba(6, 182, 212, 0.2),
+      5px 0 25px rgba(168, 85, 247, 0.15),
+      inset 0 0 30px rgba(6, 182, 212, 0.05);
+
+    &::before {
+      opacity: 1;
+      box-shadow:
+        0 0 15px rgba(6, 182, 212, 0.8),
+        0 0 30px rgba(6, 182, 212, 0.4);
+    }
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    border-color: rgba(255, 255, 255, 0.05);
+    background: rgba(30, 30, 35, 0.5);
+    cursor: not-allowed;
+
+    &::before {
+      display: none;
+    }
+
+    &:hover {
+      transform: none;
+      box-shadow: none;
+    }
   }
 }
 
 .light .option-btn {
-  border-color: rgba(0, 0, 0, 0.1);
-  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(6, 182, 212, 0.25);
+  background: linear-gradient(
+    90deg,
+    rgba(6, 182, 212, 0.06) 0%,
+    rgba(252, 252, 254, 0.95) 25%,
+    rgba(252, 252, 254, 0.95) 75%,
+    rgba(168, 85, 247, 0.06) 100%
+  );
   color: #27272a;
 
+  &::before {
+    background: linear-gradient(
+      180deg,
+      rgba(6, 182, 212, 0.9) 0%,
+      rgba(168, 85, 247, 0.7) 100%
+    );
+    box-shadow: 0 0 8px rgba(6, 182, 212, 0.4);
+  }
+
   &:hover {
-    background: rgba(0, 0, 0, 0.1);
-    border-color: rgba(0, 0, 0, 0.2);
+    background: linear-gradient(
+      90deg,
+      rgba(6, 182, 212, 0.12) 0%,
+      rgba(255, 255, 255, 1) 25%,
+      rgba(255, 255, 255, 1) 75%,
+      rgba(168, 85, 247, 0.12) 100%
+    );
+    border-color: rgba(6, 182, 212, 0.5);
+    box-shadow:
+      -5px 0 20px rgba(6, 182, 212, 0.12),
+      5px 0 20px rgba(168, 85, 247, 0.08);
+
+    &::before {
+      opacity: 1;
+    }
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    border-color: rgba(0, 0, 0, 0.1);
+    background: rgba(240, 240, 245, 0.6);
+
+    &::before {
+      display: none;
+    }
+
+    &:hover {
+      transform: none;
+      box-shadow: none;
+    }
   }
 }
 
@@ -4347,20 +4847,97 @@ onUnmounted(() => {
   width: calc(28px * var(--ui-scale, 1));
   height: calc(28px * var(--ui-scale, 1));
   border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.1);
   font-size: calc(12px * var(--ui-scale, 1));
   font-weight: 600;
   flex-shrink: 0;
+  position: relative;
+  transition: all 0.3s ease;
+  border: 1px solid transparent;
+
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: var(--radius-sm);
+    padding: 1px;
+    background: linear-gradient(
+      135deg,
+      rgba(6, 182, 212, 0.6) 0%,
+      rgba(168, 85, 247, 0.6) 100%
+    );
+    -webkit-mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    opacity: 0.5;
+    transition: opacity 0.3s ease;
+  }
 }
 
 .dark .option-id {
-  background: rgba(255, 255, 255, 0.1);
+  background: linear-gradient(
+    135deg,
+    rgba(6, 182, 212, 0.15) 0%,
+    rgba(168, 85, 247, 0.15) 100%
+  );
+  color: rgba(6, 182, 212, 0.9);
+  text-shadow: 0 0 10px rgba(6, 182, 212, 0.5);
+
+  &::before {
+    opacity: 0.6;
+  }
+}
+
+.dark .option-btn:hover .option-id {
+  background: linear-gradient(
+    135deg,
+    rgba(6, 182, 212, 0.25) 0%,
+    rgba(168, 85, 247, 0.25) 100%
+  );
   color: #fff;
+  text-shadow:
+    0 0 10px rgba(6, 182, 212, 0.8),
+    0 0 20px rgba(6, 182, 212, 0.4);
+  box-shadow:
+    0 0 15px rgba(6, 182, 212, 0.3),
+    inset 0 0 10px rgba(6, 182, 212, 0.1);
+
+  &::before {
+    opacity: 1;
+    background: linear-gradient(
+      135deg,
+      rgba(6, 182, 212, 1) 0%,
+      rgba(168, 85, 247, 0.8) 100%
+    );
+  }
 }
 
 .light .option-id {
-  background: rgba(0, 0, 0, 0.1);
-  color: #18181b;
+  background: linear-gradient(
+    135deg,
+    rgba(6, 182, 212, 0.1) 0%,
+    rgba(168, 85, 247, 0.1) 100%
+  );
+  color: rgba(6, 182, 212, 0.8);
+
+  &::before {
+    opacity: 0.4;
+  }
+}
+
+.light .option-btn:hover .option-id {
+  background: linear-gradient(
+    135deg,
+    rgba(6, 182, 212, 0.2) 0%,
+    rgba(168, 85, 247, 0.2) 100%
+  );
+  color: rgba(6, 182, 212, 1);
+  box-shadow: 0 0 12px rgba(6, 182, 212, 0.2);
+
+  &::before {
+    opacity: 0.8;
+  }
 }
 
 .option-text {
@@ -4588,13 +5165,49 @@ onUnmounted(() => {
   margin: 0 auto;
   border-radius: var(--radius-xl);
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.05);
-  transition: box-shadow 0.2s, border-color 0.2s;
+  border: 1px solid rgba(6, 182, 212, 0.2);
+  background: linear-gradient(
+    135deg,
+    rgba(6, 182, 212, 0.05) 0%,
+    rgba(15, 15, 18, 0.8) 25%,
+    rgba(15, 15, 18, 0.8) 75%,
+    rgba(168, 85, 247, 0.05) 100%
+  );
+  transition: all 0.3s ease;
+  position: relative;
+
+  &::before {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: calc(var(--radius-xl) + 1px);
+    padding: 1px;
+    background: linear-gradient(
+      135deg,
+      rgba(6, 182, 212, 0.4) 0%,
+      transparent 30%,
+      transparent 70%,
+      rgba(168, 85, 247, 0.4) 100%
+    );
+    -webkit-mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+  }
 
   &:focus-within {
-    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25);
-    border-color: rgba(255, 255, 255, 0.2);
+    border-color: rgba(6, 182, 212, 0.5);
+    box-shadow:
+      0 0 20px rgba(6, 182, 212, 0.15),
+      inset 0 0 30px rgba(6, 182, 212, 0.05);
+
+    &::before {
+      opacity: 1;
+    }
   }
 
   textarea {
@@ -4679,49 +5292,108 @@ onUnmounted(() => {
   margin: 0;
   border: none;
   border-radius: 0;
-  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  border-left: 1px solid rgba(6, 182, 212, 0.2);
   cursor: pointer;
   font-size: calc(14px * var(--ui-scale, 1));
   font-weight: 500;
-  transition: background 0.2s, color 0.2s;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(6, 182, 212, 0.3) 50%,
+      transparent 100%
+    );
+    transition: left 0.5s ease;
+  }
+
+  &:hover:not(:disabled) {
+    &::before {
+      left: 100%;
+    }
+  }
 
   &:disabled {
     cursor: not-allowed;
-    opacity: 0.7;
-    background: rgba(47, 54, 61, 0.6) !important;
+    opacity: 0.5;
+    background: rgba(30, 30, 35, 0.6) !important;
     color: #71717a !important;
+    border-left-color: rgba(255, 255, 255, 0.05) !important;
+
+    &::before {
+      display: none;
+    }
   }
 }
 
 .main-panel.dark .send-btn {
-  background: #363f46;
-  color: #a9a9a9;
-  border-left-color: rgba(255, 255, 255, 0.12);
+  background: linear-gradient(
+    135deg,
+    rgba(6, 182, 212, 0.15) 0%,
+    rgba(25, 28, 35, 0.9) 50%,
+    rgba(168, 85, 247, 0.15) 100%
+  );
+  color: rgba(6, 182, 212, 0.8);
+  border-left-color: rgba(6, 182, 212, 0.25);
 
   &:hover:not(:disabled) {
-    background: #434d58;
-    color: #d4d4d8;
+    background: linear-gradient(
+      135deg,
+      rgba(6, 182, 212, 0.25) 0%,
+      rgba(30, 35, 42, 0.95) 50%,
+      rgba(168, 85, 247, 0.25) 100%
+    );
+    color: #fff;
+    text-shadow: 0 0 10px rgba(6, 182, 212, 0.6);
+    box-shadow:
+      inset 0 0 20px rgba(6, 182, 212, 0.1),
+      -5px 0 15px rgba(6, 182, 212, 0.15);
+    border-left-color: rgba(6, 182, 212, 0.5);
   }
 
   &:disabled {
-    background: rgba(47, 54, 61, 0.8) !important;
+    background: rgba(25, 28, 35, 0.6) !important;
     color: #71717a !important;
   }
 }
 
 .main-panel.light .send-btn {
-  background: #e5e7eb;
-  color: #6b7280;
-  border-left-color: rgba(0, 0, 0, 0.08);
+  background: linear-gradient(
+    135deg,
+    rgba(6, 182, 212, 0.1) 0%,
+    rgba(240, 240, 245, 0.9) 50%,
+    rgba(168, 85, 247, 0.1) 100%
+  );
+  color: rgba(6, 182, 212, 0.8);
+  border-left-color: rgba(6, 182, 212, 0.2);
 
   &:hover:not(:disabled) {
-    background: #d1d5db;
-    color: #374151;
+    background: linear-gradient(
+      135deg,
+      rgba(6, 182, 212, 0.2) 0%,
+      rgba(255, 255, 255, 1) 50%,
+      rgba(168, 85, 247, 0.2) 100%
+    );
+    color: rgba(6, 182, 212, 1);
+    box-shadow:
+      inset 0 0 15px rgba(6, 182, 212, 0.08),
+      -5px 0 12px rgba(6, 182, 212, 0.1);
+    border-left-color: rgba(6, 182, 212, 0.4);
   }
 
   &:disabled {
-    background: rgba(229, 231, 235, 0.8) !important;
+    background: rgba(240, 240, 245, 0.6) !important;
     color: #9ca3af !important;
+    border-left-color: rgba(0, 0, 0, 0.05) !important;
   }
 }
 

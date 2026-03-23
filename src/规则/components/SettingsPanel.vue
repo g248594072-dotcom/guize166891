@@ -999,7 +999,12 @@ async function testConnection() {
 <style lang="scss" scoped>
 .settings-panel {
   padding: 24px;
-  min-height: 100%;
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
 }
 
 // 标签页头部
@@ -1009,6 +1014,7 @@ async function testConnection() {
   margin-bottom: 24px;
   border-bottom: 1px solid;
   padding-bottom: 12px;
+  flex-shrink: 0;
 }
 
 .dark .tabs-header {
@@ -1074,6 +1080,10 @@ async function testConnection() {
 // 标签页内容
 .tab-content {
   animation: fadeIn 0.3s ease;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
 }
 
 @keyframes fadeIn {
