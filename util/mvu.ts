@@ -19,6 +19,7 @@ export function defineMvuDataStore<T extends z.ZodObject>(
       .map(entry => entry[1])
       .join('.')}`,
     errorCatched(() => {
+<<<<<<< HEAD
       // 辅助函数：获取 stat_data，统一使用 MVU 格式，检测并修复双重嵌套
       function getStatData(variables: any): any {
         if (!variables) return {};
@@ -74,14 +75,22 @@ export function defineMvuDataStore<T extends z.ZodObject>(
       const statData = getStatData(rawVariables);
       const data = ref(
         schema.parse(statData, { reportInput: true }),
+=======
+      const data = ref(
+        schema.parse(_.get(getVariables(variable_option), 'stat_data', {}), { reportInput: true }),
+>>>>>>> ca4c8b1b9f4d81aabc8d22440a4a180fca5f4409
       ) as Ref<z.infer<T>>;
       if (additional_setup) {
         additional_setup(data);
       }
 
       useIntervalFn(() => {
+<<<<<<< HEAD
         const variables = getVariables(variable_option);
         const stat_data = getStatData(variables);
+=======
+        const stat_data = _.get(getVariables(variable_option), 'stat_data', {});
+>>>>>>> ca4c8b1b9f4d81aabc8d22440a4a180fca5f4409
         const result = schema.safeParse(stat_data);
         if (result.error) {
           return;
@@ -91,7 +100,11 @@ export function defineMvuDataStore<T extends z.ZodObject>(
             data.value = result.data;
           });
           if (!_.isEqual(stat_data, result.data)) {
+<<<<<<< HEAD
             updateVariablesWith(variables => setStatData(variables, result.data), variable_option);
+=======
+            updateVariablesWith(variables => _.set(variables, 'stat_data', result.data), variable_option);
+>>>>>>> ca4c8b1b9f4d81aabc8d22440a4a180fca5f4409
           }
         }
       }, 2000);
@@ -108,7 +121,11 @@ export function defineMvuDataStore<T extends z.ZodObject>(
               data.value = result.data;
             });
           }
+<<<<<<< HEAD
           updateVariablesWith(variables => setStatData(variables, result.data), variable_option);
+=======
+          updateVariablesWith(variables => _.set(variables, 'stat_data', result.data), variable_option);
+>>>>>>> ca4c8b1b9f4d81aabc8d22440a4a180fca5f4409
         },
         { deep: true },
       );
