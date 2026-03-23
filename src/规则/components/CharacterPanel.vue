@@ -34,6 +34,10 @@ defineEmits<{
 .character-panel {
   position: relative;
   min-height: 400px;
+  max-height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  flex: 1 1 auto;
 }
 
 .slide-enter-active,

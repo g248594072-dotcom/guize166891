@@ -189,6 +189,10 @@ async function onRestore(regionName: string, rule: RuleData) {
   display: flex;
   flex-direction: column;
   gap: 24px;
+  max-height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  flex: 1 1 auto;
 }
 
 .section-header {

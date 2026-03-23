@@ -195,7 +195,7 @@ export async function playTurn(prompt: string, useDualApi?: boolean): Promise<bo
     // 检测输出模式
     let isDualMode = useDualApi;
     if (isDualMode === undefined) {
-      isDualMode = await getCurrentOutputMode() === 'dual';
+      isDualMode = getCurrentOutputMode() === 'dual';
     }
 
     console.log(`🎮 [gameFlow] 输出模式: ${isDualMode ? '双API' : '单API'}`);
@@ -305,7 +305,7 @@ async function executeDualApiFlow(prompt: string, generationId: string): Promise
   console.log('📝 [gameFlow] 主API生成完成，准备调用第二API处理变量...');
 
   // 3. 获取第二API配置
-  const secondaryConfig = await getSecondaryApiConfig();
+  const secondaryConfig = getSecondaryApiConfig();
   if (!isSecondaryApiConfigured(secondaryConfig)) {
     console.warn('⚠️ [gameFlow] 第二API未配置，仅使用主API结果');
     return mainResult;

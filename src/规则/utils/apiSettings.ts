@@ -6,6 +6,7 @@
 import type { OutputMode, SecondaryApiConfig } from '../types';
 import type { WorldbookEntry } from '../types';
 import { normalizeOpenAiUrl } from './openaiUrl';
+import { loadOutputMode, loadSecondaryApiConfig } from './localSettings';
 
 /** 无存档或未配置第二 API 时使用的默认：双 API 流程中的第二路走酒馆插头 */
 export const DEFAULT_SECONDARY_API_CONFIG: SecondaryApiConfig = {
@@ -108,15 +109,12 @@ export async function updateWorldbookEntriesByMode(mode: OutputMode): Promise<bo
 }
 
 /**
- * 获取当前输出模式
+ * 获取当前输出模式（从 localStorage）
  * @returns 输出模式
  */
 export function getCurrentOutputMode(): OutputMode {
   try {
-    const { useDataStore } = import('../store');
-    const store = useDataStore();
-    const player = (store.data as any).player;
-    return player?.settings?.outputMode || 'dual';
+    return loadOutputMode();
   } catch (error) {
     console.warn('⚠️ [apiSettings] 获取输出模式失败，默认使用双API模式:', error);
     return 'dual';
@@ -124,34 +122,12 @@ export function getCurrentOutputMode(): OutputMode {
 }
 
 /**
- * 获取第二API配置
- * @returns 第二API配置或null
+ * 获取第二API配置（从 localStorage）
+ * @returns 第二API配置
  */
 export function getSecondaryApiConfig(): SecondaryApiConfig {
   try {
-    const { useDataStore } = import('../store');
-    const store = useDataStore();
-    const player = (store.data as any).player;
-    const config = player?.settings?.secondaryApi;
-
-    if (!config) {
-      return { ...DEFAULT_SECONDARY_API_CONFIG };
-    }
-
-    // 返回完整配置（与默认合并，避免旧存档缺字段）
-    return {
-      ...DEFAULT_SECONDARY_API_CONFIG,
-      url: config.url || '',
-      key: config.key || '',
-      model: config.model || '',
-      maxRetries: config.maxRetries ?? DEFAULT_SECONDARY_API_CONFIG.maxRetries,
-      useTavernMainConnection: config.useTavernMainConnection === true,
-      tasks: {
-        includeVariableUpdate: config.tasks?.includeVariableUpdate ?? true,
-        includeWorldTrend: config.tasks?.includeWorldTrend ?? false,
-        includeResidentLife: config.tasks?.includeResidentLife ?? false,
-      },
-    };
+    return loadSecondaryApiConfig();
   } catch (error) {
     console.warn('⚠️ [apiSettings] 获取第二API配置失败:', error);
     return { ...DEFAULT_SECONDARY_API_CONFIG };
