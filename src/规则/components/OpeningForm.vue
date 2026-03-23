@@ -1387,6 +1387,14 @@ async function handleSubmit() {
   console.log('🎮 [OpeningForm] 提交:', formData);
   emit('submit', formData);
 }
+
+// 暴露重置方法供父组件调用
+defineExpose({
+  resetSubmitState: () => {
+    isSubmitting.value = false;
+    console.log('🎮 [OpeningForm] 提交状态已重置');
+  },
+});
 </script>
 
 <style lang="scss" scoped>

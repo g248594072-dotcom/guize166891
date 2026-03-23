@@ -2,6 +2,7 @@
   <!-- 开局表单界面 -->
   <OpeningForm
     v-if="gamePhase === GamePhase.OPENING"
+    ref="openingFormRef"
     :key="openingFormKey"
     @submit="handleOpeningSubmit"
   />
@@ -2586,8 +2587,8 @@ async function onTagDialogRollback() {
 
     // 保持在开局表单（不进入游戏阶段）
     gamePhase.value = GamePhase.OPENING;
-    // 强制重置开局表单内部提交状态（避免“开始游戏”一直转圈）
-    openingFormKey.value += 1;
+    // 重置开局表单提交状态，保留表单内容（避免“开始游戏”一直转圈）
+    if (openingFormRef.value) { openingFormRef.value.resetSubmitState(); }
     toastr.info('已回退到开局表单，可以重新设置并生成');
     return;
   }
@@ -2982,8 +2983,8 @@ async function handleOpeningSubmit(formData: OpeningFormData) {
     isGeneratingOpening.value = false;
     isInitializing.value = false;
     streamTextBuffer.value = '';
-    // 强制重置开局表单内部提交状态（避免“开始游戏”一直转圈）
-    openingFormKey.value += 1;
+    // 重置开局表单提交状态，保留表单内容（避免“开始游戏”一直转圈）
+    if (openingFormRef.value) { openingFormRef.value.resetSubmitState(); }
   } finally {
     // 正常流程（弹出标签验证窗）时，由弹窗按钮处理状态重置
     if (!isTagDialogOpen.value) {
