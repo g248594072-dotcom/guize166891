@@ -299,7 +299,11 @@ function parse_configuration(entry: Entry): (_env: any, argv: any) => webpack.Co
             {
               resourceQuery: /url/,
               type: 'asset/inline',
-              exclude: /node_modules/,
+              exclude: [/(node_modules|\.ttf|\.otf|\.woff|\.woff2)$/],
+            },
+            {
+              test: /\.(ttf|otf|woff|woff2)(\?url)?$/,
+              type: 'asset/inline',
             },
             {
               test: /\.tsx?$/,
@@ -344,6 +348,13 @@ function parse_configuration(entry: Entry): (_env: any, argv: any) => webpack.Co
             {
               test: /\.ya?ml$/,
               loader: 'yaml-loader',
+            },
+            {
+              test: /\.(ttf|otf|woff|woff2)$/,
+              type: 'asset/resource',
+              generator: {
+                filename: 'fonts/[name][ext]',
+              },
             },
           ].concat(
             entry.html === undefined

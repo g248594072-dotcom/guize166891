@@ -440,6 +440,46 @@
 
     <!-- 其他设置标签页 -->
     <div v-show="activeTab === 'other'" class="tab-content">
+      <!-- 字体设置 -->
+      <div class="settings-section font-settings-section">
+        <h3 class="section-title">
+          <i class="fa-solid fa-font"></i>
+          字体设置
+        </h3>
+
+        <!-- 当前字体预览 -->
+        <div class="font-preview-card" :class="{ dark: isDarkMode, light: !isDarkMode }">
+          <div class="preview-label">当前字体预览</div>
+          <div class="preview-text" :style="{ fontFamily: currentFont.family }">
+            {{ currentFont.previewText || '规则模拟器 RULE.MODIFIER' }}
+          </div>
+          <div class="font-name">{{ currentFont.name }}</div>
+        </div>
+
+        <!-- 字体列表 -->
+        <div class="font-list">
+          <div class="font-grid">
+            <button
+              v-for="font in PRESET_FONTS"
+              :key="font.id"
+              class="font-card"
+              :class="{
+                active: fontSettings.currentFontId === font.id,
+                dark: isDarkMode,
+                light: !isDarkMode,
+              }"
+              @click="selectFont(font.id)"
+            >
+              <div class="font-preview" :style="{ fontFamily: font.family }">
+                {{ font.previewText?.split(' ')[0] || 'Aa' }}
+              </div>
+              <div class="font-name">{{ font.name }}</div>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 选项栏行为设置 -->
       <div class="settings-section">
         <h3 class="section-title">
           <i class="fa-solid fa-keyboard"></i>
@@ -512,6 +552,15 @@ import {
   loadOtherSettings,
   saveOtherSettingsLocal,
 } from '../utils/localSettings';
+import {
+  PRESET_FONTS,
+  loadFontSettings,
+  saveFontSettings,
+  applyFont,
+  getAllFonts,
+  type FontInfo,
+  type FontSettings,
+} from '../utils/fontManager';
 
 const props = defineProps<{
   isDarkMode: boolean;
@@ -537,6 +586,16 @@ const inputActionMode = ref<InputActionMode>('append');
 
 // 第二API配置（默认酒馆插头，与 DEFAULT_SECONDARY_API_CONFIG 一致）
 const secondaryApi = ref<SecondaryApiConfig>({ ...DEFAULT_SECONDARY_API_CONFIG });
+
+// 字体设置
+const fontSettings = ref<FontSettings>({
+  currentFontId: 'noto-serif-sc',
+});
+
+// 当前选中的字体
+const currentFont = computed(() => {
+  return PRESET_FONTS.find((f) => f.id === fontSettings.value.currentFontId) || PRESET_FONTS[0];
+});
 
 const canFetchSecondaryModels = computed(() => {
   if (secondaryApi.value.useTavernMainConnection) return true;
@@ -636,14 +695,27 @@ function loadSettings() {
     const otherSettings = loadOtherSettings();
     inputActionMode.value = otherSettings.inputActionMode;
 
+    // 加载字体设置
+    fontSettings.value = loadFontSettings();
+
     console.log('✅ [SettingsPanel] 设置从 localStorage 加载成功:', {
       outputMode: outputMode.value,
       secondaryApi: { ...secondaryApi.value, key: '***' },
       inputActionMode: inputActionMode.value,
+      fontSettings: fontSettings.value,
     });
   } catch (error) {
     console.warn('⚠️ [SettingsPanel] 从 localStorage 加载设置失败:', error);
   }
+}
+
+/** 选择字体 */
+function selectFont(fontId: string) {
+  fontSettings.value.currentFontId = fontId;
+  saveFontSettings(fontSettings.value);
+  applyFont(fontId);
+  const fontName = PRESET_FONTS.find((f) => f.id === fontId)?.name || '思源宋体';
+  toastr.success(`字体已切换为: ${fontName}`);
 }
 
 // 保存设置到浏览器 localStorage（布局快照由调用方传入，避免 props 尚未同步时写入旧值）
@@ -2133,6 +2205,152 @@ test-connection-wrapper {
   to {
     opacity: 1;
     transform: translateX(-50%) translateY(0);
+  }
+}
+
+// 字体设置样式
+.font-settings-section {
+  margin-bottom: 32px;
+}
+
+.font-preview-card {
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 24px;
+  text-align: center;
+
+  .preview-label {
+    font-size: 12px;
+    margin-bottom: 12px;
+    opacity: 0.6;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  .preview-text {
+    font-size: 28px;
+    font-weight: 500;
+    margin-bottom: 8px;
+    line-height: 1.4;
+  }
+
+  .font-name {
+    font-size: 13px;
+    opacity: 0.8;
+  }
+}
+
+.dark .font-preview-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+
+  .preview-label,
+  .font-name {
+    color: #a1a1aa;
+  }
+
+  .preview-text {
+    color: #f4f4f5;
+  }
+}
+
+.light .font-preview-card {
+  background: #f9fafb;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+
+  .preview-label,
+  .font-name {
+    color: #6b7280;
+  }
+
+  .preview-text {
+    color: #18181b;
+  }
+}
+
+.font-list {
+  margin-bottom: 20px;
+}
+
+.font-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.font-card {
+  border-radius: 10px;
+  border: 2px solid transparent;
+  padding: 16px 12px;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  text-align: center;
+  background: transparent;
+
+  &:hover {
+    transform: translateY(-2px);
+  }
+
+  &.active {
+    border-color: #3b82f6;
+  }
+
+}
+
+.font-card .font-preview {
+  font-size: 48px;
+  line-height: 1.2;
+  margin-bottom: 8px;
+  min-height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.font-card .font-name {
+  font-size: 12px;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dark .font-card {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.1);
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.15);
+  }
+
+  &.active {
+    background: rgba(59, 130, 246, 0.1);
+    border-color: #3b82f6;
+  }
+
+  .font-name {
+    color: #a1a1aa;
+  }
+}
+
+.light .font-card {
+  background: #fff;
+  border-color: rgba(0, 0, 0, 0.1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+
+  &:hover {
+    border-color: rgba(0, 0, 0, 0.15);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  }
+
+  &.active {
+    background: rgba(59, 130, 246, 0.05);
+    border-color: #3b82f6;
+  }
+
+  .font-name {
+    color: #6b7280;
   }
 }
 </style>
